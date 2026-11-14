@@ -1,0 +1,268 @@
+"""Bestiář (zvlášť pro každou hru) a deník postavy (poznámky a obrázky)."""
+from __future__ import annotations
+
+import time
+
+import flet as ft
+
+from .. import model
+from ..rules.common import fmt
+from .kit import column
+
+NOTE_TAGS = ["Úkol", "Postava", "Místo", "Ostatní"]
+IMG_CATS = ["Mapa", "Postava", "Předmět", "Bestiář", "Ostatní"]
+
+DH_FIELDS = [("name", "Jméno", "text"), ("kind", "Druh / prostředí", "text"), ("hp", "Životy", "int"),
+             ("uc", "Útočné číslo (ÚČ)", "int"), ("oc", "Obranné číslo (OČ)", "int"), ("dmg", "Zranění", "int"),
+             ("special", "Zvláštní schopnost", "text"), ("xp", "Zkušenosti", "int"), ("note", "Poznámka", "long")]
+DRD_FIELDS = [("name", "Jméno", "text"), ("kind", "Druh / prostředí", "text"),
+              ("zvt", "Životaschopnost", "text"), ("hp", "Životy", "int"), ("uc", "Útok – útočné číslo", "int"),
+              ("dmg", "Útok – útočnost", "int"), ("oc", "Obrana (OČ)", "int"), ("odl", "Odolnost", "text"),
+              ("inte", "Inteligence", "text"), ("size", "Velikost", "text"), ("zran", "Zranitelnost", "text"),
+              ("pohyb", "Pohyblivost", "text"), ("presv", "Přesvědčení", "text"), ("xp", "Zkušenost", "int"),
+              ("note", "Poznámka", "long")]
+
+
+def _thumb(app, ref: str | None, size: int) -> ft.Control:
+    l = app.look
+    data = app.image_bytes(ref) if ref else None
+    if data:
+        return ft.Image(src=data, width=size, height=size, fit=ft.BoxFit.COVER,
+                        border_radius=ft.BorderRadius.all(l.radius))
+    return ft.Container(ft.Icon(ft.Icons.IMAGE_OUTLINED, color=l.muted), width=size, height=size,
+                        bgcolor=l.card2, border=ft.Border.all(1, l.border),
+                        border_radius=ft.BorderRadius.all(l.radius), alignment=ft.Alignment.CENTER)
+
+
+# --- bestiář -----------------------------------------------------------------------
+
+def bestiar(app):
+    from ..core import Screen
+
+    sys = app.char["system"]
+    k = app.kit
+    l = app.look
+    beasts = app.bestiary[sys]
+    q = (app.ui.get("beast_q") or "").lower()
+    shown = [b for b in beasts if q in (b.get("name", "") + " " + b.get("kind", "")).lower()]
+    opened = app.ui.get("beast_open")
+
+    def on_search(e):
+        app.ui["beast_q"] = e.control.value
+        app.refresh()
+
+    search = ft.TextField(hint_text="Hledat bytost…", value=app.ui.get("beast_q", ""), on_submit=on_search,
+                          on_blur=on_search, prefix_icon=ft.Icons.SEARCH, border_color=l.border,
+                          focused_border_color=l.accent, color=l.ink, dense=True)
+
+    cards: list[ft.Control] = []
+    for b in shown:
+        stats = (f"ÚČ {b.get('uc', 0)} · OČ {b.get('oc', 0)} · životy {b.get('hp', 0)}" if sys == "dh" else
+                 f"Útok {b.get('uc', 0)}/{fmt(int(b.get('dmg', 0)))} · OČ {b.get('oc', 0)} · životy {b.get('hp', 0)}")
+        head = ft.Row([
+            _thumb(app, b.get("image"), 56),
+            ft.Column([k.text(b["name"], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
+                       k.muted(b.get("kind", ""), max_lines=1), k.muted(stats)], spacing=2, expand=True),
+        ], spacing=12)
+        if opened == b["id"]:
+            detail = [head]
+            fields = DH_FIELDS if sys == "dh" else DRD_FIELDS
+            pairs = [(lbl, b.get(key)) for key, lbl, kind in fields[2:] if kind != "long" and b.get(key) not in (None, "")]
+            grid = ft.Column([ft.Row([k.muted(lbl, expand=True), k.text(val, size=14, weight=ft.FontWeight.W_600)])
+                              for lbl, val in pairs], spacing=4)
+            detail.append(grid)
+            if b.get("note"):
+                detail.append(k.muted(b["note"], size=14))
+            detail.append(ft.Row([
+                k.button("Do souboje", lambda e, b=b: to_fight(app, b), expand=1, height=44),
+                k.button("Upravit", lambda e, b=b: edit_beast(app, b), primary=False, expand=1, height=44),
+                ft.IconButton(ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED, icon_color=l.ink, tooltip="Přidat obrázek",
+                              on_click=lambda e, b=b: app.run(beast_image(app, b))),
+            ], spacing=8))
+            cards.append(k.card(ft.Column(detail, spacing=10), accent=True,
+                                on_click=lambda e: app.go("bestiar", beast_open=None)))
+        else:
+            cards.append(k.card(head, on_click=lambda e, b=b: app.go("bestiar", beast_open=b["id"]), padding=10))
+
+    info = ("Bytosti si zapisuješ sám (podle dobrodružství nebo od PJ). Bestiář je společný pro všechny tvé "
+            "postavy v Dračí Hlídce." if sys == "dh" else
+            "Bytosti si zapisuješ sám v klasickém zápisu DrD. Bestiář je společný pro všechny tvé postavy v DrD 1.6.")
+    controls = [search, *(cards or [k.empty("Bestiář je prázdný. Přidej první bytost tlačítkem +.")]),
+                k.muted(info, size=12), ft.Container(height=70)]
+    fab = ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=l.accent, foreground_color=l.on_accent,
+                                  tooltip="Nová bytost", on_click=lambda e: edit_beast(app, None))
+    return Screen("Bestiář", [column(controls)], fab=fab)
+
+
+def to_fight(app, b: dict) -> None:
+    from .dice import foe_from_beast
+
+    foe = foe_from_beast(b)
+    foe["sys"] = app.char["system"]
+    app.ui.update({"foe": foe, "fight_log": [], "round": 1})
+    app.go("souboj")
+
+
+def edit_beast(app, b: dict | None) -> None:
+    sys = app.char["system"]
+    fields = DH_FIELDS if sys == "dh" else DRD_FIELDS
+    form = [(key, lbl, (b or {}).get(key, 0 if kind == "int" else ""), kind) for key, lbl, kind in fields]
+
+    def save(v):
+        if not str(v["name"]).strip():
+            app.toast("Vyplň jméno bytosti.")
+            return
+        if b is None:
+            v["id"] = model.new_id()
+            app.bestiary[sys].insert(0, v)
+            app.ui["beast_open"] = v["id"]
+        else:
+            b.update(v)
+        app.save(bestiary=sys)
+        app.refresh()
+
+    async def delete():
+        if b.get("image"):
+            await app.store.delete_image(b["image"])
+        app.bestiary[sys].remove(b)
+        app.save(bestiary=sys)
+        app.refresh()
+
+    app.form("Nová bytost" if b is None else "Upravit bytost", form, save, on_delete=delete if b else None)
+
+
+async def beast_image(app, b: dict) -> None:
+    data = await app.pick_image()
+    if not data:
+        return
+    if b.get("image"):
+        await app.store.delete_image(b["image"])
+    ref = await app.store.save_image(model.new_id(), data)
+    app.images[ref] = data
+    b["image"] = ref
+    app.save(bestiary=app.char["system"])
+    app.refresh()
+
+
+# --- deník -------------------------------------------------------------------------
+
+def denik(app):
+    from ..core import Screen
+
+    c = app.char
+    k = app.kit
+    l = app.look
+    tab = app.ui.get("journal_tab", "Poznámky")
+    body: list[ft.Control] = []
+    if tab == "Poznámky":
+        notes = sorted(c["notes"], key=lambda n: (not n.get("pinned"), -n.get("ts", 0)))
+        for n in notes:
+            tag_color = {"Úkol": l.accent, "Postava": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
+            body.append(k.card(ft.Column([
+                ft.Row([k.badge((n.get("tag") or "Ostatní").upper() + (" · PŘIPNUTO" if n.get("pinned") else ""),
+                                color=tag_color, fg=l.on_accent if l.dark else l.card),
+                        k.muted(time.strftime("%d. %m. %Y", time.localtime(n.get("ts", 0))), size=12)],
+                       alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                k.text(n.get("title") or "Bez názvu", size=17, weight=ft.FontWeight.BOLD, head=True),
+                k.muted(n.get("text", ""), size=14),
+            ], spacing=6), on_click=lambda e, n=n: edit_note(app, n)))
+        if not notes:
+            body.append(k.empty("Zatím žádné zápisky. Zapiš si úkoly, jména a místa z dobrodružství."))
+        fab_click = lambda e: edit_note(app, None)  # noqa: E731
+    else:
+        cat = app.ui.get("img_cat", "Vše")
+        imgs = [i for i in c["images"] if cat == "Vše" or i.get("category") == cat]
+        body.append(k.pills(["Vše"] + IMG_CATS, cat, lambda v: app.go("denik", img_cat=v)))
+        tiles = []
+        for i in imgs:
+            tiles.append(ft.Container(ft.Column([
+                _thumb(app, i["ref"], 104),
+                k.muted(i.get("title") or i.get("category", ""), size=12, max_lines=1),
+            ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER), on_click=lambda e, i=i: view_image(app, i)))
+        if tiles:
+            body.append(ft.Row(tiles, wrap=True, spacing=10, run_spacing=10))
+        else:
+            body.append(k.empty("Žádné obrázky. Přidej mapu, portrét nebo nákres tlačítkem +."))
+        if getattr(app.page, "web", False):
+            body.append(k.muted("Webová verze ukládá obrázky v prohlížeči, kde je místo omezené (zhruba 5 MB).",
+                                size=12))
+        fab_click = lambda e: app.run(add_image(app))  # noqa: E731
+
+    controls = [k.pills(["Poznámky", "Obrázky"], tab, lambda v: app.go("denik", journal_tab=v), equal=True), *body,
+                ft.Container(height=70)]
+    fab = ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=l.accent, foreground_color=l.on_accent,
+                                  tooltip="Přidat", on_click=fab_click)
+    return Screen("Deník", [column(controls)], fab=fab)
+
+
+def edit_note(app, n: dict | None) -> None:
+    c = app.char
+    g = (lambda key, default: n.get(key, default) if n else default)
+    fields = [("title", "Nadpis", g("title", ""), "text"), ("text", "Text", g("text", ""), "long"),
+              ("tag", "Štítek", g("tag", "Ostatní"), "choice", NOTE_TAGS), ("pinned", "Připnout nahoru", g("pinned", False), "bool")]
+
+    def save(v):
+        if not (v["title"].strip() or v["text"].strip()):
+            return
+        if n is None:
+            v["id"] = model.new_id()
+            v["ts"] = time.time()
+            c["notes"].append(v)
+        else:
+            n.update(v)
+        app.save(c)
+        app.refresh()
+
+    def delete():
+        c["notes"].remove(n)
+        app.save(c)
+        app.refresh()
+
+    app.form("Nový zápis" if n is None else "Upravit zápis", fields, save, on_delete=delete if n else None)
+
+
+async def add_image(app) -> None:
+    c = app.char
+    data = await app.pick_image()
+    if not data:
+        return
+    ref = await app.store.save_image(model.new_id(), data)
+    app.images[ref] = data
+    entry = {"id": model.new_id(), "ref": ref, "title": "", "category": "Mapa", "ts": time.time()}
+    c["images"].insert(0, entry)
+    app.save(c)
+
+    def save(v):
+        entry.update(v)
+        app.save(c)
+        app.refresh()
+    app.refresh()
+    app.form("Popis obrázku", [("title", "Název", "", "text"), ("category", "Kategorie", "Mapa", "choice", IMG_CATS)],
+             save)
+
+
+def view_image(app, i: dict) -> None:
+    c = app.char
+    k = app.kit
+    l = app.look
+    data = app.image_bytes(i["ref"])
+
+    async def delete():
+        await app.store.delete_image(i["ref"])
+        c["images"].remove(i)
+        app.save(c)
+        app.refresh()
+
+    def ask_delete(e):
+        app.close_dialog()
+        app.confirm("Smazat obrázek?", "Obrázek bude z deníku odstraněn.", delete)
+
+    content = (ft.InteractiveViewer(ft.Image(src=data, fit=ft.BoxFit.CONTAIN), min_scale=1, max_scale=5)
+               if data and hasattr(ft, "InteractiveViewer") else
+               (ft.Image(src=data, fit=ft.BoxFit.CONTAIN) if data else k.muted("Načítám…")))
+    app.page.show_dialog(ft.AlertDialog(
+        title=k.text(i.get("title") or i.get("category", "Obrázek"), size=18, weight=ft.FontWeight.BOLD),
+        content=ft.Container(content, width=360, height=420), bgcolor=l.card,
+        actions=[ft.TextButton("Smazat", on_click=ask_delete, style=ft.ButtonStyle(color=l.bad)),
+                 ft.TextButton("Zavřít", on_click=lambda e: app.close_dialog())],
+    ))

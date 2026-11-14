@@ -1,0 +1,26 @@
+[project]
+name = "denik-dobrodruha"
+version = "0.1.0"
+description = "Deník postavy pro Dračí Hlídku a Dračí doupě 1.6"
+requires-python = ">=3.10"
+dependencies = [
+  "flet==1.1.2",
+]
+
+[tool.flet]
+org = "cz.denikdobrodruha"
+product = "Deník dobrodruha"
+company = "Deník dobrodruha"
+copyright = "Deník dobrodruha"
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.web]
+pwa_short_name = "Deník"
+pwa_background_color = "#121015"
+pwa_theme_color = "#121015"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
