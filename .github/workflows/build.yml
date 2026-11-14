@@ -52,7 +52,7 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload-keystore.p12"
+            printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n"' | base64 -d > "$RUNNER_TEMP/upload-keystore.p12"
             echo "FLET_ANDROID_SIGNING_KEY_STORE=$RUNNER_TEMP/upload-keystore.p12" >> "$GITHUB_ENV"
           else
             echo "::warning::Chybí podpisový klíč. Novou verzi půjde nainstalovat jen po odinstalování staré (smaže data)."
