@@ -86,7 +86,7 @@ def sync_mana(c: dict) -> bool:
     """Starší postavy DrD bez magenergie doplní podle tabulky. Vrací True, pokud se něco změnilo."""
     if c.get("system") != "drd" or int(c.get("mana_max", 0)) > 0:
         return False
-    table = drd.class_mana(c.get("cls"), c.get("level", 1), c["attrs"])
+    table = drd.class_mana(c.get("cls"), c.get("level", 1), c["attrs"], c.get("branch"))
     if not table:
         return False
     c["mana_max"] = c["mana"] = table

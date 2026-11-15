@@ -217,6 +217,10 @@ def obor(app):
             return
         c["branch"] = sel
         model.add_history(c, "Obor", sel)
+        table = drd.class_mana(c["cls"], c["level"], c["attrs"], sel)
+        if table and table > int(c.get("mana_max", 0)):
+            c["mana"] = min(table, int(c.get("mana", 0)) + table - int(c.get("mana_max", 0)))
+            c["mana_max"] = table
         app.save(c)
         app.ui["branch_pick"] = None
         app.toast(f"Obor: {sel}")

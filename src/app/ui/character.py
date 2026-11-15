@@ -190,7 +190,7 @@ def open_postup(app) -> None:
                      "xp_next": c.get("xp_next", 0), "rolled": None, "branch": c.get("branch"),
                      "dog_roll": None, "dog": None}
     if c["system"] == "drd":
-        table = drd.class_mana(c["cls"], c["level"] + 1, c["attrs"])
+        table = drd.class_mana(c["cls"], c["level"] + 1, c["attrs"], c.get("branch"))
         if table:
             app.ui["lvl"]["mana_max"] = max(c["mana_max"], table)
     app.go("postup")
@@ -249,13 +249,22 @@ def postup(app):
                              primary=False, icon=ft.Icons.CASINO_OUTLINED))
         if w.get("rolled"):
             rows.append(k.muted(f"Hod: {w['rolled']}"))
-        table = drd.class_mana(c["cls"], w["level"], c["attrs"])
+        table = drd.class_mana(c["cls"], w["level"], c["attrs"], w.get("branch") or c.get("branch"))
         if table is not None:
             def use_table(e, table=table):
                 w["mana_max"] = table
                 app.refresh()
-            extra = (f" · počet kouzel {drd_kouzla.spell_count(w['level'])}" if magic.is_wizard(c)
-                     else (" (tabulka PPZ končí 5. úrovní)" if w["level"] > 5 else ""))
+            br = w.get("branch") or c.get("branch")
+            if magic.is_wizard(c):
+                extra = f" · počet kouzel {drd_kouzla.spell_count(w['level'])}"
+            elif w["level"] >= 6 and not br:
+                extra = " – po volbě oboru se použije tabulka oboru"
+            elif c["cls"] == "Alchymista" and w["level"] > 9:
+                extra = " (tabulka končí 9. úrovní, dál alchymista destiluje sám)"
+            elif w["level"] > 15:
+                extra = " (tabulka končí 15. úrovní)"
+            else:
+                extra = f" ({br})" if br and w["level"] >= 6 else ""
             rows.append(ft.Row([
                 k.muted(f"Tabulka magenergie: {table} magů{extra}", size=13, expand=True),
                 ft.TextButton("Použít", on_click=use_table)]))
@@ -292,6 +301,9 @@ def postup(app):
 
     def pick_branch(n):
         w["branch"] = n
+        table = drd.class_mana(c["cls"], w["level"], c["attrs"], n)
+        if table:
+            w["mana_max"] = max(c["mana_max"], table)
         app.refresh()
 
     def save(e):

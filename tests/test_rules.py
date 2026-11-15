@@ -138,3 +138,15 @@ def test_capacity_rules():
     assert dh_vybava.carry_capacity(0) == 15 and dh_vybava.carry_capacity(6) == 28
     c = model.create_character("drd", "X", "Barbar", "Válečník", [19, 9, 15, 10, 5])
     assert c["capacity"] == 24.0  # 480 mn
+
+
+def test_branch_mana_tables():
+    a = [10, 14, 12, 13, 10]  # OBR 14, INT 13
+    assert drd.class_mana("Hraničář", 5, a) == 14
+    assert drd.class_mana("Hraničář", 6, a) == 14  # bez oboru zůstává 5. úroveň
+    assert drd.class_mana("Hraničář", 6, a, "Druid") == 20
+    assert drd.class_mana("Hraničář", 15, a, "Chodec") == 49
+    assert drd.class_mana("Alchymista", 6, a, "Pyrofor") == 230
+    assert drd.class_mana("Alchymista", 12, a, "Theurg") == 600
+    assert drd.class_mana("Kouzelník", 6, a, "Mág") == 26
+    assert drd.class_mana("Válečník", 6, a, "Bojovník") is None

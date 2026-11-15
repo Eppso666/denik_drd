@@ -69,6 +69,19 @@ ALCH_MANA = {1: [7, 7, 8, 8, 8, 9, 9], 2: [15, 16, 17, 18, 19, 20, 21], 3: [31, 
              4: [62, 70, 76, 80, 84, 90, 98], 5: [126, 131, 142, 150, 158, 169, 184]}
 ALCH_MANA_COLS = [8, 10, 12, 14, 15, 17, 19]
 
+# Pravidla pro pokročilé, úroveň 6–15 (druid, chodec: sloupce INT jako u hraničáře)
+DRUID_MANA = {6: [18, 19, 19, 20, 22, 23, 24], 7: [22, 23, 23, 24, 25, 26, 26], 8: [26, 27, 27, 29, 30, 31, 32],
+              9: [30, 31, 31, 34, 35, 36, 39], 10: [35, 36, 36, 39, 40, 42, 44], 11: [40, 40, 41, 43, 44, 45, 48],
+              12: [46, 46, 47, 50, 50, 53, 55], 13: [50, 50, 51, 55, 55, 58, 61], 14: [56, 57, 59, 62, 63, 66, 70],
+              15: [62, 62, 64, 69, 69, 71, 76]}
+CHODEC_MANA = {6: [15, 16, 16, 17, 18, 19, 20], 7: [18, 19, 19, 20, 21, 22, 22], 8: [21, 22, 22, 23, 24, 25, 25],
+               9: [24, 25, 25, 27, 28, 29, 31], 10: [27, 28, 28, 30, 31, 32, 34], 11: [31, 31, 31, 33, 34, 35, 37],
+               12: [34, 34, 34, 37, 37, 39, 41], 13: [37, 37, 38, 41, 41, 43, 45], 14: [40, 40, 42, 45, 45, 47, 50],
+               15: [44, 44, 46, 49, 49, 51, 54]}
+# Alchymista (theurg i pyrofor) 6–9 podle OBR; od 9. úrovně si magenergii destiluje sám
+ALCH_MANA_ADV = {6: [184, 201, 218, 230, 242, 259, 276], 7: [256, 280, 303, 320, 337, 360, 384],
+                 8: [360, 394, 426, 450, 474, 506, 540], 9: [490, 525, 568, 600, 632, 675, 710]}
+
 
 def _col(value: int, starts: list[int]) -> int:
     col = 0
@@ -78,19 +91,28 @@ def _col(value: int, starts: list[int]) -> int:
     return col
 
 
-def class_mana(cls: str, level: int, attrs: list[int]) -> int | None:
-    """Magenergie podle tabulek PPZ (kouzelník i dál podle PPP). None = povolání magenergii nemá.
+def class_mana(cls: str, level: int, attrs: list[int], branch: str | None = None) -> int | None:
+    """Magenergie podle tabulek PPZ (1.–5. úroveň) a PPP podle oboru (6.–15. úroveň).
 
-    Hraničář a alchymista: tabulky končí 5. úrovní – výše se použije hodnota 5. úrovně (zbytek ručně).
+    None = povolání magenergii nemá. Dokud postava na 6.+ úrovni nemá zvolený obor, platí hodnota 5. úrovně.
+    Alchymista: tabulka PPP končí 9. úrovní, potom si magenergii destiluje sám (zadává se ručně).
     """
-    if cls == "Kouzelník":
+    level = int(level)
+    if cls == "Kouzelník":  # mág i čaroděj mají společnou tabulku
         from .drd_kouzla import wizard_mana
         return wizard_mana(level, attrs[3])
-    lvl = max(1, min(5, int(level)))
+    lvl = max(1, min(5, level))
     if cls == "Hraničář":
-        return RANGER_MANA[lvl][_col(attrs[3], RANGER_MANA_COLS)]
+        col = _col(attrs[3], RANGER_MANA_COLS)
+        if level >= 6 and branch in ("Druid", "Chodec"):
+            table = DRUID_MANA if branch == "Druid" else CHODEC_MANA
+            return table[min(15, level)][col]
+        return RANGER_MANA[lvl][col]
     if cls == "Alchymista":
-        return ALCH_MANA[lvl][_col(attrs[1], ALCH_MANA_COLS)]
+        col = _col(attrs[1], ALCH_MANA_COLS)
+        if level >= 6 and branch in ("Theurg", "Pyrofor"):
+            return ALCH_MANA_ADV[min(9, level)][col]
+        return ALCH_MANA[lvl][col]
     return None
 
 
