@@ -60,6 +60,39 @@ HP_TABLE: dict[str, tuple[int, int, int]] = {
 
 MANA_NAME = {"Hraničář": "Magenergie", "Kouzelník": "Magenergie", "Alchymista": "Magenergie"}
 
+# Tabulka hraničářovy magenergie (PPZ): úroveň 1–5, sloupce INT 6–7, 8–9, … 18–19
+RANGER_MANA = {1: [0] * 7, 2: [3] * 7, 3: [6, 6, 7, 7, 7, 8, 8], 4: [10, 10, 11, 11, 11, 12, 13],
+               5: [12, 13, 13, 14, 15, 15, 16]}
+RANGER_MANA_COLS = [6, 8, 10, 12, 14, 16, 18]
+# Tabulka alchymistovy magenergie (PPZ): úroveň 1–5, sloupce OBR 8–9, 10–11, 12–13, 14, 15–16, 17–18, 19–20
+ALCH_MANA = {1: [7, 7, 8, 8, 8, 9, 9], 2: [15, 16, 17, 18, 19, 20, 21], 3: [31, 35, 38, 40, 42, 45, 49],
+             4: [62, 70, 76, 80, 84, 90, 98], 5: [126, 131, 142, 150, 158, 169, 184]}
+ALCH_MANA_COLS = [8, 10, 12, 14, 15, 17, 19]
+
+
+def _col(value: int, starts: list[int]) -> int:
+    col = 0
+    for i, lo in enumerate(starts):
+        if value >= lo:
+            col = i
+    return col
+
+
+def class_mana(cls: str, level: int, attrs: list[int]) -> int | None:
+    """Magenergie podle tabulek PPZ (kouzelník i dál podle PPP). None = povolání magenergii nemá.
+
+    Hraničář a alchymista: tabulky končí 5. úrovní – výše se použije hodnota 5. úrovně (zbytek ručně).
+    """
+    if cls == "Kouzelník":
+        from .drd_kouzla import wizard_mana
+        return wizard_mana(level, attrs[3])
+    lvl = max(1, min(5, int(level)))
+    if cls == "Hraničář":
+        return RANGER_MANA[lvl][_col(attrs[3], RANGER_MANA_COLS)]
+    if cls == "Alchymista":
+        return ALCH_MANA[lvl][_col(attrs[1], ALCH_MANA_COLS)]
+    return None
+
 
 def bonus(value: int) -> int:
     """Tabulka postihů a bonusů."""

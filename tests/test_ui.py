@@ -274,3 +274,25 @@ def test_catalog_add_and_buy(make_app):
     mail = next(i for i in items if i["name"] == "Kroužková zbroj")
     assert mail["weight_mn"] == 350 and mail["quality"] == 5
     assert catalog.price_md("1 zl 5 st") == 150
+
+
+def test_mana_gauge_for_casters(make_app):
+    app, page = make_app()
+    for cls, attrs, expected in (("Kouzelník", (10, 12, 10, 17, 16), 8), ("Alchymista", (10, 14, 13, 10, 10), 8),
+                                 ("Hraničář", (12, 12, 12, 13, 10), 0)):
+        c = model.create_character("drd", "M", "Člověk", cls, list(attrs))
+        assert c["mana_max"] == expected, cls
+        c["mana_max"] = c["mana"] = 0  # postava ze starší verze
+        app.add_character(c)
+        app.open_character(c["id"])
+        drain(page)
+        texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+        assert "Magenergie" in texts, cls
+        assert c["mana_max"] == expected  # doplněno z tabulky
+    # válečník magenergii nemá
+    c = model.create_character("drd", "V", "Člověk", "Válečník", [16, 12, 15, 10, 10])
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Magenergie" not in texts

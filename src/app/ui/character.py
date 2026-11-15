@@ -65,16 +65,19 @@ def postava(app):
         app.save(c)
         app.refresh()
 
+    if model.sync_mana(c):
+        app.save(c)
+    show_mana = c.get("mana_max", 0) > 0 or model.uses_mana(c)
     gauges: list[ft.Control] = [
         k.gauge("Životy", c["hp"], c["hp_max"], l.hp, f" · hr. smrti {c['death']}" if is_dh else ""),
     ]
-    if c.get("mana_max", 0) > 0:
+    if show_mana:
         gauges.append(k.gauge(c.get("mana_name") or "Mana", c["mana"], c["mana_max"], l.mana))
     btn_row = [k.button("Zranit", lambda e: change_hp(-1), primary=False, expand=1, height=44),
                k.button("Léčit", lambda e: change_hp(+1), primary=False, expand=1, height=44),
                k.button("Odpočinek", rest, primary=False, expand=1, height=44)]
     gauges.append(ft.Row(btn_row, spacing=8))
-    if c.get("mana_max", 0) > 0:
+    if show_mana:
         gauges.append(ft.Row([k.button(f"− {c.get('mana_name') or 'Mana'}", lambda e: change_mana(-1), primary=False,
                                        expand=1, height=40),
                               k.button(f"+ {c.get('mana_name') or 'Mana'}", lambda e: change_mana(+1), primary=False,
@@ -186,8 +189,10 @@ def open_postup(app) -> None:
                      "attrs": list(c["attrs"]), "skill_points": c.get("skill_points", 0),
                      "xp_next": c.get("xp_next", 0), "rolled": None, "branch": c.get("branch"),
                      "dog_roll": None, "dog": None}
-    if magic.is_wizard(c):
-        app.ui["lvl"]["mana_max"] = max(c["mana_max"], drd_kouzla.wizard_mana(c["level"] + 1, c["attrs"][3]))
+    if c["system"] == "drd":
+        table = drd.class_mana(c["cls"], c["level"] + 1, c["attrs"])
+        if table:
+            app.ui["lvl"]["mana_max"] = max(c["mana_max"], table)
     app.go("postup")
 
 
@@ -244,15 +249,15 @@ def postup(app):
                              primary=False, icon=ft.Icons.CASINO_OUTLINED))
         if w.get("rolled"):
             rows.append(k.muted(f"Hod: {w['rolled']}"))
-        if magic.is_wizard(c):
-            table = drd_kouzla.wizard_mana(w["level"], c["attrs"][3])
-
+        table = drd.class_mana(c["cls"], w["level"], c["attrs"])
+        if table is not None:
             def use_table(e, table=table):
                 w["mana_max"] = table
                 app.refresh()
+            extra = (f" · počet kouzel {drd_kouzla.spell_count(w['level'])}" if magic.is_wizard(c)
+                     else (" (tabulka PPZ končí 5. úrovní)" if w["level"] > 5 else ""))
             rows.append(ft.Row([
-                k.muted(f"Tabulka magenergie: {table} magů · počet kouzel {drd_kouzla.spell_count(w['level'])}",
-                        size=13, expand=True),
+                k.muted(f"Tabulka magenergie: {table} magů{extra}", size=13, expand=True),
                 ft.TextButton("Použít", on_click=use_table)]))
         has_dog = any(x.get("kind") == "pes" for x in c.get("companions", []))
         if c["cls"] == "Hraničář" and not has_dog and w["level"] > c["level"]:

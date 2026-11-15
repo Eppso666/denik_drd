@@ -69,9 +69,29 @@ def create_character(system: str, name: str, race: str, cls: str, attrs: list[in
         c["death"] = 0
         c["capacity"] = default_capacity(c)
         c["skill_points"] = 0
-        if cls == "Kouzelník":
-            c["mana_max"] = c["mana"] = drd_kouzla.wizard_mana(1, attrs[3])
+        table = drd.class_mana(cls, 1, attrs)
+        if table:
+            c["mana_max"] = c["mana"] = table
     return c
+
+
+def uses_mana(c: dict) -> bool:
+    """Postava, která kouzlí za magenergii / manu (ukazatel se zobrazí i při nule)."""
+    if c.get("system") == "drd":
+        return c.get("cls") in drd.MANA_NAME
+    return bool(c.get("mana_name"))
+
+
+def sync_mana(c: dict) -> bool:
+    """Starší postavy DrD bez magenergie doplní podle tabulky. Vrací True, pokud se něco změnilo."""
+    if c.get("system") != "drd" or int(c.get("mana_max", 0)) > 0:
+        return False
+    table = drd.class_mana(c.get("cls"), c.get("level", 1), c["attrs"])
+    if not table:
+        return False
+    c["mana_max"] = c["mana"] = table
+    c["mana_name"] = c.get("mana_name") or drd.MANA_NAME.get(c["cls"], "Magenergie")
+    return True
 
 
 def item(name: str, category: str, qty: int = 1, weight: float = 0.0, equipped: bool = False, **stats) -> dict:
