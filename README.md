@@ -11,7 +11,7 @@ Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si při
 | | Dračí Hlídka | Dračí doupě 1.6 |
 |---|---|---|
 | Vzhled | tmavý, oranžový | pergamen, vínová |
-| Kostky | k6, k6+, k10 | k6, k6+, k10, k% |
+| Kostky | k6, k6+, k10 | k4, k6, k8, k10, k12, k20 (i víc kostek naráz), k6+, k%|
 | Generátor | 6× k6, nejnižší se škrtá; nebo 20 bodů (1–6 na vlastnost); + rodový základ, +3 ke 2 dominantním | rozsahy podle rasy, základní vlastnosti povolání podle tabulky povolání + opravy rasy |
 | Ověřovací hod | 1k10 + oprava + stupeň dovednosti, musí **překonat** obtížnost; výhoda/nevýhoda ±5 | schopnosti v %: k% ≤ šance; past: 1k10 + oprava ≥ nebezpečnost |
 | Boj | ÚČ = útočnost + SIL (střelba + OBR), OČ = ZO + obrana zbraně + štít, ZO = OBR + kvalita zbroje | ÚČ = oprava SIL (střelba OBR) + síla zbraně, OČ = oprava OBR + kvalita zbroje + obrana zbraně; útok i obrana k6+ |
@@ -19,6 +19,9 @@ Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si při
 
 - **Postava**: životy, mana, vlastnosti s opravami, zbraně s ÚČ/OČ, dovednosti; úprava všech údajů.
 - **Postup na úroveň**: ruční úprava úrovně, životů, many, vlastností (a v DrD hod na přírůstek životů).
+- **Schopnosti povolání DrD** se doplňují samy podle povolání a úrovně (zloděj: tabulka Pravděpodobnost úspěchu
+  zloděje + násobek opravy; hraničář: stopování a pes). Generátor je ukazuje pro úroveň 1–5 i se základními
+  vlastnostmi povolání.
 - **Vlastní dovednosti** (DH: vlastnost + stupeň; DrD: šance v %).
 - **Batoh**: předměty, výbava na těle, peníze, **naložení automaticky z vah nebo ručně**, nosnost.
 - **Kostky**: výběr dovednosti / zbraně / schopnosti / pasti, na kterou házíš, a volné hody.
