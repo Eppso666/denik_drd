@@ -1,18 +1,18 @@
 """Pravidla Dračího doupěte 1.6 (Pravidla pro začátečníky, ALTAR).
 
 Tabulky z kapitol Tvoje postava, Pravidla pro boj a …a mimo boj.
-Kostky: k6, k6+ (boj), k10 (pasti), k% (schopnosti).
+Kostky: k6+ (boj), k10 (pasti), k% (schopnosti) a volné hody k4–k20.
 """
 from __future__ import annotations
 
 import random
 
-from .common import d, open_d6
+from .common import d, fmt, open_d6
 
 SYSTEM = "drd"
 NAME = "Dračí doupě 1.6"
 SHORT = "DrD 1.6"
-DICE = ["k6", "k6+", "k10", "k%"]
+DICE = ["k4", "k6", "k8", "k10", "k12", "k20", "k6+", "k%"]
 
 ATTRS = ["SIL", "OBR", "ODL", "INT", "CHA"]
 ATTR_NAMES = ["Síla", "Obratnost", "Odolnost", "Inteligence", "Charisma"]
@@ -139,3 +139,101 @@ def percent(chance: int, rng: random.Random | None = None) -> tuple[int, bool]:
 
 def combat_roll(rng: random.Random | None = None) -> list[int]:
     return open_d6(rng)
+
+
+# --- schopnosti povolání (Pravidla pro začátečníky, úrovně 1–5) -------------------
+
+MAX_TABLE_LEVEL = 5
+
+CLASS_DESC = {
+    "Válečník": "Bojovník v první linii. Nejvíc životů (základ 10, k10 za úroveň).",
+    "Hraničář": "Stopař a lovec s mimosmyslovými schopnostmi. Životy 8, k6+2 za úroveň.",
+    "Alchymista": "Výrobce lektvarů a magických předmětů. Životy 7, k6+1 za úroveň.",
+    "Kouzelník": "Sesílá kouzla za magenergii. Životy 6, k6 za úroveň.",
+    "Zloděj": "Mistr převleků, zámků a pastí. Schopnosti se hází na k% (musí padnout šance nebo méně). "
+              "Životy 6, k6 za úroveň.",
+}
+
+# Pravděpodobnost úspěchu zloděje: (název, hodnoty pro úroveň 1–5, [(vlastnost, násobek opravy)])
+THIEF_TABLE: list[tuple[str, list[int], list[tuple[str, int]]]] = [
+    ("Převleky", [5, 10, 15, 20, 25], [("CHA", 3)]),
+    ("Získání důvěry", [7, 11, 15, 19, 23], [("CHA", 3)]),
+    ("Objevení mechanismu", [10, 15, 20, 25, 30], [("OBR", 2)]),
+    ("Objevení objektu", [15, 20, 25, 30, 35], [("OBR", 3)]),
+    ("Zneškodnění mechanismu", [15, 20, 25, 30, 35], [("OBR", 2)]),
+    ("Otevření objektu", [25, 30, 35, 40, 45], [("OBR", 3)]),
+    ("Šplhání po zdech", [70, 72, 74, 76, 78], [("OBR", 1)]),
+    ("Skok z výšky", [65, 68, 71, 74, 77], [("OBR", 1)]),
+    ("Tichý pohyb", [15, 18, 21, 23, 26], [("OBR", 1)]),
+    ("Schování se ve stínu", [30, 35, 40, 45, 50], [("OBR", 2)]),
+    ("Vybírání kapes", [10, 13, 16, 19, 22], [("CHA", 1), ("OBR", 1)]),
+]
+
+# Ostatní povolání: (název, popis, od úrovně, text místo procent)
+CLASS_FEATURES: dict[str, list[tuple[str, str, int, str]]] = {
+    "Válečník": [
+        ("Zastrašení", "k% podle bojovnosti soupeře (tabulka zastrašení)", 1, "k%"),
+        ("Poznávání artefaktů", "bez procentového hodu", 1, "–"),
+        ("Léčba vlastních zranění", "bez procentového hodu", 2, "–"),
+        ("Odhad zbraně", "čas podle tabulky odhadu zbraně", 2, "–"),
+        ("Odhad soupeře", "ÚČ, OČ a zranitelnost protivníka", 4, "–"),
+        ("Více útoků za kolo", "útočí víckrát než jednou za kolo", 5, "–"),
+    ],
+    "Hraničář": [
+        ("Bonus pro boj se zvířaty", "počítá se v souboji", 1, "aktivní"),
+        ("Mimosmyslové schopnosti", "stojí magenergii", 2, "magy"),
+    ],
+    "Alchymista": [
+        ("Odolávání jedům", "bez procentového hodu", 1, "–"),
+        ("Vidění magenergie", "bez procentového hodu", 1, "–"),
+        ("Alchymie (výroba předmětů)", "spotřebuje magy a suroviny", 1, "–"),
+    ],
+    "Kouzelník": [
+        ("Kouzlení", "za magenergii, bez procentového hodu", 1, "–"),
+        ("Odvracení nevídaného", "bez procentového hodu", 1, "–"),
+        ("Povolání přítele", "bez procentového hodu", 3, "–"),
+    ],
+    "Zloděj": [],
+}
+
+RANGER_TRACKING = [("Stopování – volná příroda", "sníh, louka, vysoký les", 80),
+                   ("Stopování – obtížný terén", "hustý les, džungle, skály", 50),
+                   ("Stopování – uzavřené prostory", "místnost, chodba", 60)]
+
+
+def class_abilities(cls: str, level: int, attrs: list[int]) -> list[dict]:
+    """Schopnosti povolání pro danou úroveň.
+
+    Každá položka: name, sub, pct (int nebo None), text (když pct je None), from_level, locked.
+    """
+    lvl = max(1, min(MAX_TABLE_LEVEL, int(level)))
+    out: list[dict] = []
+    if cls == "Zloděj":
+        for name, vals, deps in THIEF_TABLE:
+            base = vals[lvl - 1]
+            add = sum(mult * bonus(attrs[ATTRS.index(a)]) for a, mult in deps)
+            parts = " + ".join(f"{mult}× {a} {fmt(bonus(attrs[ATTRS.index(a)]))}" for a, mult in deps)
+            out.append({"name": name, "sub": f"tabulka {base} % + {parts}", "pct": max(1, min(99, base + add)),
+                        "text": None, "from_level": 1})
+    elif cls == "Hraničář":
+        for name, terrain, base in RANGER_TRACKING:
+            out.append({"name": name, "sub": f"{terrain}: {base} % + 2 % × úroveň",
+                        "pct": min(99, base + 2 * lvl), "text": None, "from_level": 1})
+        out.append({"name": "Hraničářův pes", "sub": "šance při postupu na úroveň", "pct": 40, "text": None,
+                    "from_level": 1})
+    for name, sub, frm, text in CLASS_FEATURES.get(cls, []):
+        out.append({"name": name, "sub": sub, "pct": None, "text": text, "from_level": frm})
+    for a in out:
+        a["locked"] = a["from_level"] > int(level)
+    return out
+
+
+def class_note(cls: str) -> str:
+    if cls == "Zloděj":
+        return ("Hodnoty z tabulky Pravděpodobnost úspěchu zloděje (úrovně 1–5) + násobek opravy vlastnosti. "
+                "PJ může šanci upravit podle situace.")
+    if cls == "Hraničář":
+        return ("Za každou další stopovanou bytost +3 %, za každých 24 hodin stáří stopy −10 %. "
+                "Pravidla pro začátečníky pokrývají úrovně 1–5.")
+    return "Schopnosti bez procent se ověřují jinak (k6, tabulka nebo rozhodnutí PJ)."
+

@@ -201,6 +201,38 @@ def generator(app):
         hp = drd.hit_points(u["gen_cls"], u["gen_attrs"])
         summary = f"Životy na 1. úrovni {hp} (základ {drd.HP_TABLE[u['gen_cls']][0]} + oprava ODL)"
 
+    class_card: list[ft.Control] = []
+    if s == "drd":
+        from .character import class_abilities_card
+        lvl = u.get("gen_lvl", 1)
+        cls = u["gen_cls"]
+        mains = []
+        for a in drd.CLASS_RANGES[cls]:
+            i = drd.ATTRS.index(a)
+            lo, hi = drd.attr_range(u["gen_race"], cls, i)
+            n, add = drd.range_dice(lo, hi)
+            m = drd.RACE_MODS[u["gen_race"]][i]
+            mains.append(ft.Container(ft.Column([
+                k.muted(f"{a} · máš {u['gen_attrs'][i]}", size=12, weight=ft.FontWeight.BOLD),
+                k.text(f"{lo}–{hi}", size=22, weight=ft.FontWeight.BOLD, head=True),
+                k.muted(f"{n}k6{fmt(add) if add else ''}" + (f" (rasa {fmt(m)})" if m else ""), size=12),
+            ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER), expand=1, bgcolor=l.card2,
+                border=ft.Border.all(1, l.border), border_radius=ft.BorderRadius.all(l.radius),
+                padding=ft.Padding.symmetric(vertical=8, horizontal=4)))
+        class_card = [k.card(ft.Column([
+            ft.Row([k.text(cls, size=21, weight=ft.FontWeight.BOLD, head=True, color=l.accent),
+                    k.muted(u["gen_race"], size=13, weight=ft.FontWeight.BOLD)],
+                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            k.muted(drd.CLASS_DESC[cls], size=13),
+            k.muted("ZÁKLADNÍ VLASTNOSTI POVOLÁNÍ", size=12, weight=ft.FontWeight.BOLD),
+            ft.Row(mains, spacing=8),
+            k.muted("SCHOPNOSTI NA ÚROVNI", size=12, weight=ft.FontWeight.BOLD),
+            k.pills([str(n) for n in range(1, 6)], str(lvl),
+                    lambda v: (u.update({"gen_lvl": int(v)}), app.refresh()), equal=True),
+            class_abilities_card(app, cls, lvl, u["gen_attrs"]),
+            k.muted(drd.class_note(cls), size=12),
+        ], spacing=8), accent=True)]
+
     can_create = not (s == "dh" and manual and left != 0)
 
     def create(e):
@@ -216,6 +248,7 @@ def generator(app):
         k.pills(races, u["gen_race"], set_race),
         k.muted("POVOLÁNÍ", size=12, weight=ft.FontWeight.BOLD),
         k.pills(classes, u["gen_cls"], set_cls),
+        *class_card,
         attrs_card,
         k.muted(summary),
         k.button("Vytvořit postavu" if can_create else f"Rozděl ještě {left} bodů", create, disabled=not can_create),

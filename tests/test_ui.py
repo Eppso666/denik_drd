@@ -53,11 +53,11 @@ def click_everything(app, page, rounds=2):
     return clicked
 
 
-@pytest.mark.parametrize("system", ["dh", "drd"])
-def test_all_screens_build_and_click(make_app, system):
+@pytest.mark.parametrize("system,cls", [("dh", "Válečník"), ("drd", "Válečník"), ("drd", "Zloděj"),
+                                        ("drd", "Hraničář")])
+def test_all_screens_build_and_click(make_app, system, cls):
     app, page = make_app()
     race = "Trpaslík"
-    cls = "Válečník"
     attrs = [18, 9, 19, 10, 7] if system == "dh" else [16, 8, 15, 10, 5]
     c = model.create_character(system, "Test Testovič", race, cls, attrs)
     c["abilities"].append({"name": "Stopování", "pct": 60, "attr": None, "kind": "Schopnost povolání"})
@@ -124,3 +124,19 @@ def test_persistence_roundtrip(make_app):
     import asyncio
     asyncio.run(app2.load())
     assert app2.chars[c["id"]]["name"] == "B"
+
+
+def test_drd_generator_class_card_and_levels(make_app):
+    app, page = make_app()
+    app.render()
+    start.open_generator(app)
+    app.ui.update({"gen_sys": "drd", "gen_cls": "Zloděj", "gen_race": "Hobit"})
+    start.reset_gen(app)
+    app.go("generator")
+    texts = [getattr(c, "value", "") for v in page.views for c in walk(v)]
+    assert "Převleky" in texts and "ZÁKLADNÍ VLASTNOSTI POVOLÁNÍ" in texts
+    pill5 = next(c for v in page.views for c in walk(v)
+                 if isinstance(c, ft.Container) and getattr(getattr(c, "content", None), "value", None) == "5")
+    pill5.on_click(Ev(pill5))
+    drain(page)
+    assert app.ui["gen_lvl"] == 5

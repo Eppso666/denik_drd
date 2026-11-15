@@ -116,12 +116,20 @@ def postava(app):
                  for s in skills]
         sec_title = "Dovednosti"
     else:
-        abil = c["abilities"][:5]
-        srows = [k.row_item(a["name"], f"{a['pct']} %", badge="VLASTNÍ" if a.get("kind") == "Vlastní" else None,
+        srows = [k.row_item(a["name"], f"{ability_chance(c, a)} %",
+                            sub=None if a.get("kind") in (None, "Vlastní") else a.get("kind"),
+                            badge="VLASTNÍ" if a.get("kind") == "Vlastní" else None,
                             on_click=lambda e, a=a: app.go("kostky", dice_tab="Schopnost", dice_ability=a["name"]))
-                 for a in abil]
-        sec_title = "Schopnosti a dovednosti"
+                 for a in c["abilities"]]
+        sec_title = "Vlastní dovednosti"
     skills_block = k.list_card(srows) if srows else k.empty("Zatím žádné. Přidej je přes „Upravit“.")
+    class_block: list[ft.Control] = []
+    if not is_dh and c["cls"] in drd.CLASS_FEATURES:
+        class_block = [k.section("Schopnosti povolání", k.muted(f"{c['cls']} · {c['level']}. úroveň", size=13)),
+                       class_abilities_card(app, c["cls"], c["level"], c["attrs"], roll=True),
+                       k.muted(drd.class_note(c["cls"]) + (
+                           f" Tabulky končí 5. úrovní, používají se hodnoty pro 5. úroveň."
+                           if c["level"] > drd.MAX_TABLE_LEVEL else ""), size=12)]
 
     controls = [
         header,
@@ -130,6 +138,7 @@ def postava(app):
         attrs,
         k.section("Boj", ft.TextButton("Souboj", on_click=lambda e: app.go("souboj"))),
         k.card(ft.Column(fight_rows, spacing=10)),
+        *class_block,
         k.section(sec_title, ft.TextButton("Upravit", on_click=lambda e: app.go("dovednosti"))),
         skills_block,
     ]
@@ -372,6 +381,42 @@ def edit_ability(app, a: dict | None) -> None:
 
     app.form("Nová schopnost" if a is None else "Upravit schopnost", fields, save,
              on_delete=delete if a is not None else None)
+
+
+def class_abilities_card(app, cls: str, level: int, attrs: list[int], roll: bool = False) -> ft.Control:
+    """Seznam schopností povolání DrD pro danou úroveň (generátor i karta postavy)."""
+    k = app.kit
+    l = app.look
+    rows: list[ft.Control] = []
+    for a in drd.class_abilities(cls, level, attrs):
+        locked = a["locked"]
+        has_pct = a["pct"] is not None
+        value = "–" if locked else (f"{a['pct']} %" if has_pct else a["text"])
+        trailing = None
+        on_click = None
+        if roll and has_pct and not locked:
+            on_click = lambda e, n=a["name"]: app.go("kostky", dice_tab="Schopnost", dice_ability=n)  # noqa: E731
+            trailing = ft.Icon(ft.Icons.CASINO_OUTLINED, color=l.accent, size=22)
+        rows.append(ft.Container(ft.Row([
+            ft.Column([k.text(a["name"], size=15, weight=ft.FontWeight.W_600, max_lines=1,
+                              color=l.muted if locked else None),
+                       k.muted(f"od {a['from_level']}. úrovně" if locked else a["sub"], size=12, max_lines=2)],
+                      spacing=1, expand=True),
+            k.text(value, size=19, weight=ft.FontWeight.BOLD, head=True,
+                   color=l.accent if has_pct and not locked else l.muted),
+            *([trailing] if trailing else []),
+        ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER), on_click=on_click, ink=on_click is not None))
+    return k.list_card(rows)
+
+
+def rollable_abilities(c: dict) -> list[dict]:
+    """Všechny schopnosti DrD, na které se hází k%: povolání (podle úrovně) + vlastní."""
+    out = [{"name": a["name"], "chance": a["pct"], "kind": "Schopnost povolání"}
+           for a in drd.class_abilities(c["cls"], c["level"], c["attrs"]) if a["pct"] is not None and not a["locked"]]
+    names = {a["name"] for a in out}
+    out += [{"name": a["name"], "chance": ability_chance(c, a), "kind": a.get("kind") or "Vlastní"}
+            for a in c["abilities"] if a["name"] not in names]
+    return out
 
 
 def ability_chance(c: dict, a: dict) -> int:

@@ -6,7 +6,7 @@ import flet as ft
 from .. import model
 from ..rules import dh, drd
 from ..rules.common import d, fmt, open_d6, roll_expr
-from .character import ability_chance
+from .character import rollable_abilities
 from .kit import column
 
 
@@ -41,12 +41,12 @@ def _history(app) -> ft.Control:
                       k.list_card([k.row_item(h["label"], h["value"]) for h in hist])], spacing=8)
 
 
-def _free_dice(app, sides_list: list[str]) -> ft.Control:
+def _free_dice(app, sides_list: list[str], count: int = 1) -> ft.Control:
     k = app.kit
     l = app.look
-    buttons = []
-    for name in sides_list:
-        def roll(e, name=name):
+
+    def die(name: str, height: int = 76, special: bool = False) -> ft.Control:
+        def roll(e):
             if name == "k6+":
                 rolls = open_d6()
                 _push(app, "k6+", sum(rolls), "Hody: " + " + ".join(map(str, rolls)) if len(rolls) > 1 else "Jeden hod",
@@ -55,12 +55,29 @@ def _free_dice(app, sides_list: list[str]) -> ft.Control:
                 _push(app, "k%", d(100), "Procentový hod (1–100)", l.accent)
             else:
                 n = int(name[1:])
-                _push(app, name, d(n), f"Rozsah 1–{n}", l.accent)
-        buttons.append(ft.Container(
-            k.text(name, size=24, weight=ft.FontWeight.BOLD, head=True, align=ft.TextAlign.CENTER),
-            height=76, expand=1, alignment=ft.Alignment.CENTER, bgcolor=l.card,
-            border=ft.Border.all(1, l.border), border_radius=ft.BorderRadius.all(l.radius), on_click=roll, ink=True))
-    return ft.Row(buttons, spacing=8)
+                rolls = [d(n) for _ in range(count)]
+                _push(app, f"{count}{name}" if count > 1 else name, sum(rolls),
+                      "Hody: " + " + ".join(map(str, rolls)) if count > 1 else f"Rozsah 1–{n}", l.accent)
+        sub = {"k6+": "šestka se hází znovu", "k%": "procentový hod"}.get(name, f"1–{name[1:]}")
+        return ft.Container(
+            ft.Column([k.text(name, size=26 if not special else 22, weight=ft.FontWeight.BOLD, head=True,
+                              align=ft.TextAlign.CENTER, color=l.accent if special else None),
+                       k.muted(sub, size=11, align=ft.TextAlign.CENTER)],
+                      spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                      alignment=ft.MainAxisAlignment.CENTER),
+            height=height, expand=1, alignment=ft.Alignment.CENTER, bgcolor=l.card2 if special else l.card,
+            border=ft.Border.all(1, l.accent if special else l.border), border_radius=ft.BorderRadius.all(l.radius),
+            on_click=roll, ink=True)
+
+    plain = [n for n in sides_list if n not in ("k6+", "k%")]
+    special = [n for n in sides_list if n in ("k6+", "k%")]
+    rows: list[ft.Control] = []
+    per_row = 3 if len(plain) > 4 else max(1, len(plain))
+    for i in range(0, len(plain), per_row):
+        rows.append(ft.Row([die(n) for n in plain[i:i + per_row]], spacing=8))
+    if special:
+        rows.append(ft.Row([die(n, height=60, special=True) for n in special], spacing=8))
+    return ft.Column(rows, spacing=8)
 
 
 def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
@@ -110,7 +127,7 @@ def kostky(app):
     k = app.kit
     l = app.look
     is_dh = c["system"] == "dh"
-    tabs = ["Dovednost", "Zbraň", "Volný hod"] if is_dh else ["Zbraň", "Schopnost", "Past", "Volný hod"]
+    tabs = ["Dovednost", "Zbraň", "Volný hod"] if is_dh else ["Kostky", "Zbraň", "Schopnost", "Past"]
     tab = app.ui.get("dice_tab")
     if tab not in tabs:
         tab = tabs[0]
@@ -158,7 +175,7 @@ def kostky(app):
         body += _weapon_tab(app, app.settings.get("dh_exploding", True) if is_dh else True)
 
     elif tab == "Schopnost":
-        abil = c["abilities"]
+        abil = rollable_abilities(c)
         if not abil:
             body.append(k.empty("Zatím nemáš žádné schopnosti v %. Přidej je v Postava – Schopnosti."))
             body.append(k.button("Přidat schopnost", lambda e: app.go("dovednosti"), primary=False))
@@ -169,13 +186,14 @@ def kostky(app):
                 sel = names[0]
             pm = app.ui.get("dice_pm", 0)
             for a in abil:
-                ch = ability_chance(c, a)
-                body.append(k.card(ft.Row([k.text(a["name"], size=15, weight=ft.FontWeight.W_600, expand=True),
-                                           k.text(f"{ch} %", size=18, weight=ft.FontWeight.BOLD, head=True)]),
-                                   accent=a["name"] == sel, padding=12,
-                                   on_click=lambda e, n=a["name"]: app.go("kostky", dice_ability=n)))
+                body.append(k.card(ft.Row([
+                    ft.Column([k.text(a["name"], size=15, weight=ft.FontWeight.W_600),
+                               k.muted(a["kind"], size=12)], spacing=1, expand=True),
+                    k.text(f"{a['chance']} %", size=18, weight=ft.FontWeight.BOLD, head=True)]),
+                    accent=a["name"] == sel, padding=12,
+                    on_click=lambda e, n=a["name"]: app.go("kostky", dice_ability=n)))
             a = next(a for a in abil if a["name"] == sel)
-            chance = max(1, min(99, ability_chance(c, a) + pm))
+            chance = max(1, min(99, a["chance"] + pm))
             body.append(k.stepper(f"{fmt(pm)} %", lambda e: app.go("kostky", dice_pm=pm - 5),
                                   lambda e: app.go("kostky", dice_pm=pm + 5), label="Úprava od PJ"))
 
@@ -205,9 +223,17 @@ def kostky(app):
 
     else:
         r = model.rules(c["system"])
-        body += [_free_dice(app, r.DICE),
-                 k.muted("Dračí Hlídka: k6 pro boj, k10 pro dovednosti, kouzla a pasti. Procentový hod se nepoužívá."
-                         if is_dh else "Dračí doupě 1.6: k6+ v boji, k10 proti pastem, k% u schopností."), ]
+        if is_dh:
+            body += [_free_dice(app, r.DICE),
+                     k.muted("Dračí Hlídka: k6 pro boj, k10 pro dovednosti, kouzla a pasti. Procentový hod se nepoužívá.")]
+        else:
+            count = app.ui.get("dice_count", 1)
+            body += [k.stepper(f"{count}×", lambda e: app.go("kostky", dice_count=max(1, count - 1)),
+                               lambda e: app.go("kostky", dice_count=min(10, count + 1)), label="Počet kostek",
+                               sub="platí pro k4 až k20"),
+                     _free_dice(app, r.DICE, count),
+                     k.muted("Dračí doupě 1.6: k6+ v boji, k10 proti pastem, k% u schopností. "
+                             "Ostatní kostky pro zranění zbraní, tabulky a hody PJ.")]
 
     controls = [_result_card(app), k.pills(tabs, tab, lambda v: app.go("kostky", dice_tab=v), equal=True),
                 *body, _history(app)]

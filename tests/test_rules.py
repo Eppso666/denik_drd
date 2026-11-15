@@ -94,3 +94,19 @@ def test_open_d6():
         def randint(self, a, b):
             return next(seq)
     assert open_d6(R()) == [6, 6, 2]
+
+
+def test_drd_thief_and_ranger_abilities():
+    attrs = [10, 16, 10, 10, 15]  # OBR +2, CHA +2
+    ab = {a["name"]: a for a in drd.class_abilities("Zloděj", 1, attrs)}
+    assert len(ab) == 11
+    assert ab["Převleky"]["pct"] == 5 + 3 * 2
+    assert ab["Vybírání kapes"]["pct"] == 10 + 2 + 2
+    assert drd.class_abilities("Zloděj", 9, attrs)[0]["pct"] == 25 + 6  # nad 5. úrovní platí hodnoty pro 5.
+    ranger = {a["name"]: a for a in drd.class_abilities("Hraničář", 4, attrs)}
+    assert ranger["Stopování – volná příroda"]["pct"] == 88
+    assert ranger["Mimosmyslové schopnosti"]["locked"] is False
+    assert {a["name"]: a for a in drd.class_abilities("Hraničář", 1, attrs)}["Mimosmyslové schopnosti"]["locked"]
+    for cls in drd.CLASSES:
+        assert drd.class_abilities(cls, 1, attrs)
+    assert "k4" in drd.DICE and "k20" in drd.DICE
