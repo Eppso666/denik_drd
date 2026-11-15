@@ -1,6 +1,0 @@
-__pycache__/
-*.pyc
-build/
-.venv/
-src/assets/fonts/
-.pytest_cache/
