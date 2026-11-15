@@ -6,7 +6,7 @@ from app import model
 from app.ui import start
 from conftest import Ev, drain, walk
 
-SCREENS = ["postava", "batoh", "kostky", "souboj", "postup", "dovednosti", "bestiar", "denik"]
+SCREENS = ["postava", "batoh", "katalog", "kostky", "souboj", "postup", "dovednosti", "bestiar", "denik"]
 
 
 def handlers(view_list):
@@ -54,7 +54,7 @@ def click_everything(app, page, rounds=2):
 
 
 @pytest.mark.parametrize("system,cls", [("dh", "Válečník"), ("drd", "Válečník"), ("drd", "Zloděj"),
-                                        ("drd", "Hraničář")])
+                                        ("drd", "Hraničář"), ("drd", "Kouzelník")])
 def test_all_screens_build_and_click(make_app, system, cls):
     app, page = make_app()
     race = "Trpaslík"
@@ -168,3 +168,109 @@ def test_drd_generator_class_card_and_levels(make_app):
     pill5.on_click(Ev(pill5))
     drain(page)
     assert app.ui["gen_lvl"] == 5
+
+
+def _drd_char(app, page, cls, level=1, branch=None, attrs=(10, 12, 12, 17, 14), race="Člověk"):
+    c = model.create_character("drd", "Test", race, cls, list(attrs))
+    c["level"] = level
+    c["branch"] = branch
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    return c
+
+
+def test_wizard_spells_and_familiar(make_app):
+    from app.rules import drd_kouzla
+    from app.ui import companions, magic
+    app, page = make_app()
+    c = _drd_char(app, page, "Kouzelník")
+    assert c["mana_max"] == 8  # INT 17, 1. úroveň
+    app.go("kouzla")
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Dým" in texts and "Ohnivý déšť" in texts and "Bábelská rybka" not in texts  # PPP až od 6. úr.
+    # naučit se 3 kouzla (limit 1. úrovně), čtvrté už ne
+    for name in ("Modré blesky", "Dým", "Hyperprostor", "Světlo"):
+        names = c["spells"]
+        if len(names) < 3:
+            names.append(name)
+    assert len(c["spells"]) == magic.spell_limit(c) == 3
+    app.go("postava")
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert any("Kouzla 3/3" in str(t) for t in texts)
+    magic.spell_detail(app, c, drd_kouzla.SPELL_BY_NAME["Modré blesky"], known=True)
+    assert page.dialogs
+    page.dialogs.clear()
+    companions.add_companion(app, c, "přítel", "Havran")
+    drain(page)
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Havran" in texts and "ÚČ" in texts
+    # čaroděj na 11. úrovni má silnějšího havrana
+    c["level"], c["branch"] = 11, "Čaroděj"
+    from app.rules import drd_obory
+    st = drd_obory.companion_stats(c["companions"][0], c["cls"], c["level"], c["branch"])
+    assert st["Magenergie"] == "15" and st["Počet kouzel"] == "6"
+    app.go("kouzla")
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Bábelská rybka" in texts
+    for scr in ("kouzla", "obor", "postava", "postup"):
+        app.go(scr)
+        assert click_everything(app, page) > 0, scr
+
+
+def test_postup_to_6_requires_branch(make_app):
+    from app.ui import character
+    app, page = make_app()
+    c = _drd_char(app, page, "Zloděj", level=5, attrs=(10, 16, 12, 10, 14))
+    character.open_postup(app)
+    assert app.ui["lvl"]["level"] == 6
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Lupič" in texts and "Sicco" in texts
+    save_btn = [x for v in page.views for x in walk(v) if isinstance(x, ft.FilledButton)][-1]
+    save_btn.on_click(Ev(save_btn))
+    drain(page)
+    assert c["level"] == 5 and not c.get("branch")  # bez volby oboru se neuloží
+    app.ui["lvl"]["branch"] = "Lupič"
+    app.go("postup")
+    save_btn = [x for v in page.views for x in walk(v) if isinstance(x, ft.FilledButton)][-1]
+    save_btn.on_click(Ev(save_btn))
+    drain(page)
+    assert c["level"] == 6 and c["branch"] == "Lupič"
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Nenápadnost" in texts and "Křišťálový klíč" in texts
+
+
+def test_ranger_dog(make_app):
+    from app.ui import companions
+    app, page = make_app()
+    c = _drd_char(app, page, "Hraničář", level=1)
+    companions.add_companion(app, c, "pes", "Pes válečný")
+    drain(page)
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "Pes válečný" in texts
+    c["level"] = 6  # pes je u pána 5 úrovní → zesílí
+    app.go("postava")
+    texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
+    assert "ZESÍLIL" in texts and "6" in texts
+
+
+def test_catalog_add_and_buy(make_app):
+    from app.ui import catalog
+    app, page = make_app()
+    c = _drd_char(app, page, "Válečník", attrs=(16, 12, 15, 10, 10))
+    c["money"] = {"zl": 30, "st": 0, "md": 0}
+    items = catalog.rules_catalog(c)
+    sword = next(i for i in items if i["name"] == "Široký meč")
+    assert (sword["attack"], sword["damage"], sword["defense"], sword["weight_mn"]) == (5, 0, 0, 30)
+    catalog.item_dialog(app, sword)
+    buy = next(a for a in page.dialogs[-1].actions if a.content == "Koupit")
+    buy.on_click(Ev(buy))
+    drain(page)
+    assert c["money"] == {"zl": 6, "st": 0, "md": 0}
+    assert any(i["name"] == "Široký meč" and i["equipped"] for i in c["items"])
+    assert model.weapons(c)[0]["attack"] == 5
+    # bez zbroje má DrD postava KZ 1; s kroužkovou 5
+    assert model.armor_quality(c) == 1
+    mail = next(i for i in items if i["name"] == "Kroužková zbroj")
+    assert mail["weight_mn"] == 350 and mail["quality"] == 5
+    assert catalog.price_md("1 zl 5 st") == 150

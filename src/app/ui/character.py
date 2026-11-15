@@ -6,9 +6,11 @@ import copy
 import flet as ft
 
 from .. import model
-from ..rules import dh, drd
-from ..rules.common import fmt
+from ..rules import dh, drd, drd_kouzla, drd_obory
+from ..rules.common import d, fmt
 from . import avatar as avatar_ui
+from . import companions as comp_ui
+from . import magic
 from .kit import column
 
 
@@ -29,7 +31,7 @@ def postava(app):
         avatar,
         ft.Column([
             k.text(c["name"], size=21, weight=ft.FontWeight.BOLD, head=True, max_lines=2),
-            k.muted(f"{c['race']} · {c['cls']} · {c['level']}. úroveň", size=14),
+            k.muted(f"{c['race']} · {magic.branch_label(c)} · {c['level']}. úroveň", size=14),
             k.muted(xp, size=12),
         ], spacing=2, expand=True),
         k.button("Postup", lambda e: open_postup(app), primary=False, height=44, icon=ft.Icons.TRENDING_UP),
@@ -122,20 +124,32 @@ def postava(app):
     skills_block = k.list_card(srows) if srows else k.empty("Zatím žádné. Přidej je přes „Upravit“.")
     class_block: list[ft.Control] = []
     if not is_dh and c["cls"] in drd.CLASS_FEATURES:
-        class_block = [k.section("Schopnosti povolání", k.muted(f"{c['cls']} · {c['level']}. úroveň", size=13)),
-                       class_abilities_card(app, c["cls"], c["level"], c["attrs"], roll=True),
-                       k.muted(drd.class_note(c["cls"]) + (
-                           f" Tabulky končí 5. úrovní, používají se hodnoty pro 5. úroveň."
-                           if c["level"] > drd.MAX_TABLE_LEVEL else ""), size=12)]
+        branch = c.get("branch")
+        trail = k.muted(f"{magic.branch_label(c)} · {c['level']}. úroveň", size=13)
+        if c["level"] >= drd_obory.ADV_LEVEL and not branch and drd_obory.BRANCHES.get(c["cls"]):
+            trail = ft.TextButton("Zvolit obor", on_click=lambda e: app.go("obor"))
+        note = drd.class_note(c["cls"])
+        if c["level"] > drd.MAX_TABLE_LEVEL and c["cls"] == "Zloděj" and branch not in ("Lupič", "Sicco"):
+            note += " Tabulky PPZ končí 5. úrovní, používají se hodnoty pro 5. úroveň."
+        if c["level"] >= drd_obory.ADV_LEVEL and branch:
+            note += f" Schopnosti oboru {branch} podle Pravidel pro pokročilé – podrobnosti v pravidlech."
+        class_block = [k.section("Schopnosti povolání", trail),
+                       class_abilities_card(app, c["cls"], c["level"], c["attrs"], roll=True, branch=branch),
+                       k.muted(note, size=12)]
+    spell_block = magic.spells_section(app, c) if magic.is_wizard(c) else []
+    pets = comp_ui.companion_cards(app, c) if not is_dh else []
+    plus = comp_ui.add_button(app, c)
 
     controls = [
         header,
         k.card(ft.Column(gauges, spacing=10)),
-        k.section("Vlastnosti"),
+        k.section("Vlastnosti", plus),
         attrs,
+        *pets,
         k.section("Boj", ft.TextButton("Souboj", on_click=lambda e: app.go("souboj"))),
         k.card(ft.Column(fight_rows, spacing=10)),
         *class_block,
+        *spell_block,
         k.section(sec_title, ft.TextButton("Upravit", on_click=lambda e: app.go("dovednosti"))),
         skills_block,
     ]
@@ -170,7 +184,10 @@ def open_postup(app) -> None:
     c = app.char
     app.ui["lvl"] = {"level": c["level"] + 1, "hp_max": c["hp_max"], "mana_max": c["mana_max"],
                      "attrs": list(c["attrs"]), "skill_points": c.get("skill_points", 0),
-                     "xp_next": c.get("xp_next", 0), "rolled": None}
+                     "xp_next": c.get("xp_next", 0), "rolled": None, "branch": c.get("branch"),
+                     "dog_roll": None, "dog": None}
+    if magic.is_wizard(c):
+        app.ui["lvl"]["mana_max"] = max(c["mana_max"], drd_kouzla.wizard_mana(c["level"] + 1, c["attrs"][3]))
     app.go("postup")
 
 
@@ -227,6 +244,29 @@ def postup(app):
                              primary=False, icon=ft.Icons.CASINO_OUTLINED))
         if w.get("rolled"):
             rows.append(k.muted(f"Hod: {w['rolled']}"))
+        if magic.is_wizard(c):
+            table = drd_kouzla.wizard_mana(w["level"], c["attrs"][3])
+
+            def use_table(e, table=table):
+                w["mana_max"] = table
+                app.refresh()
+            rows.append(ft.Row([
+                k.muted(f"Tabulka magenergie: {table} magů · počet kouzel {drd_kouzla.spell_count(w['level'])}",
+                        size=13, expand=True),
+                ft.TextButton("Použít", on_click=use_table)]))
+        has_dog = any(x.get("kind") == "pes" for x in c.get("companions", []))
+        if c["cls"] == "Hraničář" and not has_dog and w["level"] > c["level"]:
+            def roll_dog(e):
+                r = d(100)
+                dog = drd_obory.dog_for_roll(r)
+                w["dog_roll"] = r
+                w["dog"] = dog["name"] if dog else None
+                app.refresh()
+            rows.append(k.button(f"Hodit k% na psa (šance {drd_obory.DOG_CHANCE} %)", roll_dog, primary=False,
+                                 icon=ft.Icons.PETS))
+            if w.get("dog_roll") is not None:
+                rows.append(k.muted(f"Padlo {w['dog_roll']}: " + (f"{w['dog']} – přidá se po uložení."
+                                                                    if w.get("dog") else "pes tentokrát není.")))
         banner = ("Vlastnosti se v DrD 1.6 při postupu běžně nemění. Ruční úprava je pro případy, kdy to povolí PJ "
                   "(kouzlo, lektvar, kletba). Přírůstek životů je vždy alespoň 1.")
 
@@ -242,7 +282,23 @@ def postup(app):
             border=ft.Border.all(2 if changed else 1, l.accent if changed else l.border),
             border_radius=ft.BorderRadius.all(l.radius), padding=ft.Padding.symmetric(vertical=6)))
 
+    needs_branch = (not is_dh and w["level"] >= drd_obory.ADV_LEVEL and not c.get("branch")
+                    and bool(drd_obory.BRANCHES.get(c["cls"])))
+
+    def pick_branch(n):
+        w["branch"] = n
+        app.refresh()
+
     def save(e):
+        if needs_branch and not w.get("branch"):
+            app.toast("Na 6. úrovni si vyber obor povolání.")
+            return
+        if needs_branch:
+            c["branch"] = w["branch"]
+            model.add_history(c, "Obor", w["branch"])
+        if w.get("dog"):
+            c.setdefault("companions", []).append({"id": model.new_id(), "kind": "pes", "name": w["dog"], "nick": "",
+                                                   "since": w["level"], "overrides": {}, "note": ""})
         gain = w["hp_max"] - c["hp_max"]
         old_odo = c["attrs"][2]
         c["level"] = w["level"]
@@ -261,9 +317,16 @@ def postup(app):
         app.toast(f"Uloženo: {c['level']}. úroveň")
         app.go("postava")
 
+    branch_block: list[ft.Control] = []
+    if needs_branch:
+        branch_block = [k.section("Volba oboru (Pravidla pro pokročilé)"),
+                        k.muted("Na 6. úrovni se postava rozhodne pro jeden ze dvou oborů. Dosavadní schopnosti "
+                                "zůstávají, přibudou schopnosti oboru.", size=13),
+                        *magic.branch_cards(app, c, w.get("branch"), pick_branch)]
     controls = [
         k.card(k.text(banner, size=14), bg=l.card2),
         k.card(ft.Column(rows, spacing=10)),
+        *branch_block,
         k.section("Vlastnosti"),
         ft.Row(attr_cells, spacing=6),
         k.button("Uložit postup", save),
@@ -380,12 +443,13 @@ def edit_ability(app, a: dict | None) -> None:
              on_delete=delete if a is not None else None)
 
 
-def class_abilities_card(app, cls: str, level: int, attrs: list[int], roll: bool = False) -> ft.Control:
+def class_abilities_card(app, cls: str, level: int, attrs: list[int], roll: bool = False,
+                         branch: str | None = None) -> ft.Control:
     """Seznam schopností povolání DrD pro danou úroveň (generátor i karta postavy)."""
     k = app.kit
     l = app.look
     rows: list[ft.Control] = []
-    for a in drd.class_abilities(cls, level, attrs):
+    for a in drd.class_abilities(cls, level, attrs, branch):
         locked = a["locked"]
         has_pct = a["pct"] is not None
         value = "–" if locked else (f"{a['pct']} %" if has_pct else a["text"])
@@ -409,7 +473,8 @@ def class_abilities_card(app, cls: str, level: int, attrs: list[int], roll: bool
 def rollable_abilities(c: dict) -> list[dict]:
     """Všechny schopnosti DrD, na které se hází k%: povolání (podle úrovně) + vlastní."""
     out = [{"name": a["name"], "chance": a["pct"], "kind": "Schopnost povolání"}
-           for a in drd.class_abilities(c["cls"], c["level"], c["attrs"]) if a["pct"] is not None and not a["locked"]]
+           for a in drd.class_abilities(c["cls"], c["level"], c["attrs"], c.get("branch"))
+           if a["pct"] is not None and not a["locked"]]
     names = {a["name"] for a in out}
     out += [{"name": a["name"], "chance": ability_chance(c, a), "kind": a.get("kind") or "Vlastní"}
             for a in c["abilities"] if a["name"] not in names]

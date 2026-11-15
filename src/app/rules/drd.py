@@ -201,14 +201,27 @@ RANGER_TRACKING = [("Stopování – volná příroda", "sníh, louka, vysoký l
                    ("Stopování – uzavřené prostory", "místnost, chodba", 60)]
 
 
-def class_abilities(cls: str, level: int, attrs: list[int]) -> list[dict]:
-    """Schopnosti povolání pro danou úroveň.
+def class_abilities(cls: str, level: int, attrs: list[int], branch: str | None = None) -> list[dict]:
+    """Schopnosti povolání pro danou úroveň (od 6. úrovně i schopnosti zvoleného oboru z PPP).
 
     Každá položka: name, sub, pct (int nebo None), text (když pct je None), from_level, locked.
     """
+    from . import drd_obory
+
     lvl = max(1, min(MAX_TABLE_LEVEL, int(level)))
     out: list[dict] = []
-    if cls == "Zloděj":
+    adv_table = None
+    if int(level) >= drd_obory.ADV_LEVEL and branch in ("Lupič", "Sicco"):
+        adv_table = drd_obory.LUPIC_TABLE if branch == "Lupič" else drd_obory.SICCO_TABLE
+    if cls == "Zloděj" and adv_table:
+        alvl = max(6, min(15, int(level)))
+        for name, vals, deps in adv_table:
+            base = vals[alvl - 6]
+            add = sum(mult * bonus(attrs[ATTRS.index(a)]) for a, mult in deps)
+            parts = " + ".join(f"{mult}× {a} {fmt(bonus(attrs[ATTRS.index(a)]))}" for a, mult in deps)
+            out.append({"name": name, "sub": f"{branch} {alvl}. úr.: {base} %" + (f" + {parts}" if parts else ""),
+                        "pct": max(1, min(99, base + add)), "text": None, "from_level": 1})
+    elif cls == "Zloděj":
         for name, vals, deps in THIEF_TABLE:
             base = vals[lvl - 1]
             add = sum(mult * bonus(attrs[ATTRS.index(a)]) for a, mult in deps)
@@ -218,11 +231,18 @@ def class_abilities(cls: str, level: int, attrs: list[int]) -> list[dict]:
     elif cls == "Hraničář":
         for name, terrain, base in RANGER_TRACKING:
             out.append({"name": name, "sub": f"{terrain}: {base} % + 2 % × úroveň",
-                        "pct": min(99, base + 2 * lvl), "text": None, "from_level": 1})
+                        "pct": min(99, base + 2 * int(level)), "text": None, "from_level": 1})
         out.append({"name": "Hraničářův pes", "sub": "šance při postupu na úroveň", "pct": 40, "text": None,
                     "from_level": 1})
     for name, sub, frm, text in CLASS_FEATURES.get(cls, []):
         out.append({"name": name, "sub": sub, "pct": None, "text": text, "from_level": frm})
+    if branch and int(level) >= drd_obory.ADV_LEVEL:
+        for b in drd_obory.BRANCHES.get(cls, []):
+            if b[0] != branch:
+                continue
+            for name, frm, sub in b[2]:
+                out.append({"name": name, "sub": f"{branch} · {sub}", "pct": None, "text": "–", "from_level": frm,
+                            "branch": branch})
     for a in out:
         a["locked"] = a["from_level"] > int(level)
     return out

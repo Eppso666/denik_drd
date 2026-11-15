@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from .rules import dh, drd
+from .rules import dh, dh_vybava, drd, drd_kouzla, drd_vybava
 
 
 def rules(system: str):
@@ -40,6 +40,10 @@ def create_character(system: str, name: str, race: str, cls: str, attrs: list[in
         "notes": [],
         "images": [],
         "history": [],
+        "branch": None,
+        "spells": [],
+        "companions": [],
+        "avatar": None,
         "created": time.time(),
     }
     if system == "dh":
@@ -58,13 +62,15 @@ def create_character(system: str, name: str, race: str, cls: str, attrs: list[in
             c["skill_points"] = 2  # rodová schopnost Všestrannost
         else:
             c["skill_points"] = 0
-        c["capacity"] = 20.0 + 2 * max(0, attrs[0] - 5)
+        c["capacity"] = float(dh_vybava.carry_capacity(dh.bonus(attrs[0])))
     else:
         hp = drd.hit_points(cls, attrs)
         c["hp_max"] = c["hp"] = hp
         c["death"] = 0
-        c["capacity"] = 10.0 + 2 * attrs[0]
+        c["capacity"] = default_capacity(c)
         c["skill_points"] = 0
+        if cls == "Kouzelník":
+            c["mana_max"] = c["mana"] = drd_kouzla.wizard_mana(1, attrs[3])
     return c
 
 
@@ -84,7 +90,10 @@ def weapons(c: dict) -> list[dict]:
 
 
 def armor_quality(c: dict) -> int:
-    return sum(int(i.get("quality", 0)) for i in equipped(c, "Zbroj"))
+    worn = equipped(c, "Zbroj")
+    if not worn and c.get("system") == "drd":
+        return drd_vybava.NO_ARMOR_KZ  # DrD: bez zbroje je kvalita 1 (Tabulka kvality zbroje)
+    return sum(int(i.get("quality", 0)) for i in worn)
 
 
 def shield_bonus(c: dict) -> int:
@@ -99,15 +108,27 @@ def load(c: dict) -> float:
     return float(c["load_value"]) if c.get("load_manual") else items_weight(c)
 
 
+def default_capacity(c: dict) -> float:
+    """Nosnost podle pravidel (DrD: Tabulka nosnosti v mincích → kg; DH: Tabulka nosnosti v librách)."""
+    if c.get("system") == "dh":
+        return float(dh_vybava.carry_capacity(dh.bonus(c["attrs"][0])))
+    return drd_vybava.kg(drd_vybava.carry_capacity_mn(drd.bonus(c["attrs"][0])))
+
+
 def load_state(c: dict) -> tuple[str, str]:
-    """Vrací (popis, klíč barvy)."""
+    """Vrací (popis, klíč barvy). Naložení podle násobků nosnosti (do 4× nosnosti)."""
     cap = max(0.1, float(c.get("capacity", 30)))
     ratio = load(c) / cap
+    is_dh = c.get("system") == "dh"
     if ratio <= 1:
-        return "Bez postihu", "ok"
-    if ratio <= 1.5:
-        return "Naložen – postih", "warn"
-    return "Přetížen", "bad"
+        return "Bez naložení", "ok"
+    if ratio <= 2:
+        return ("Pohyblivost −¼" if is_dh else "Mírné naložení · pohyblivost ¾"), "warn"
+    if ratio <= 3:
+        return ("Pohyblivost −½" if is_dh else "Střední naložení · pohyblivost ½"), "warn"
+    if ratio <= 4:
+        return ("Pohyblivost −¾" if is_dh else "Velké naložení · pohyblivost ¼, útok −1"), "bad"
+    return "Přetížen – nad 4× nosnost", "bad"
 
 
 def add_history(c: dict, label: str, value: str) -> None:

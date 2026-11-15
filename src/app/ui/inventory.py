@@ -5,6 +5,7 @@ import flet as ft
 
 from .. import model
 from ..rules.common import fmt
+from . import catalog
 from .kit import column
 
 CATEGORIES = ["Zbraň", "Zbroj", "Štít", "Lektvar", "Surovina", "Ostatní"]
@@ -24,6 +25,7 @@ def batoh(app):
     k = app.kit
     l = app.look
     is_dh = c["system"] == "dh"
+    unit = "lb" if is_dh else "kg"
     load = model.load(c)
     cap = float(c.get("capacity", 30))
     state, color_key = model.load_state(c)
@@ -47,16 +49,25 @@ def batoh(app):
         ft.Row([k.text("Naložení", size=16, weight=ft.FontWeight.BOLD),
                 k.pills(["Z předmětů", "Ručně"], "Ručně" if c.get("load_manual") else "Z předmětů", set_mode,
                         wrap=False)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        ft.Row([k.text(f"{num(load)} / {num(cap)} kg", size=22, weight=ft.FontWeight.BOLD, head=True),
+        ft.Row([k.text(f"{num(load)} / {num(cap)} {unit}", size=22, weight=ft.FontWeight.BOLD, head=True),
                 k.text(state, size=14, weight=ft.FontWeight.BOLD, color=color)],
                alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         k.bar(load, cap, color),
     ]
     if c.get("load_manual"):
         load_rows.append(k.stepper(num(load), adj("load_value", -0.5, 0), adj("load_value", +0.5, 0),
-                                   label="Nesená váha (kg)", sub="po 0,5 kg"))
-    load_rows.append(k.stepper(num(cap), adj("capacity", -1, 1), adj("capacity", +1, 1), label="Nosnost (kg)",
-                               sub="nastav podle pravidel a síly postavy"))
+                                   label=f"Nesená váha ({unit})", sub=f"po 0,5 {unit}"))
+    rule_cap = model.default_capacity(c)
+    load_rows.append(k.stepper(num(cap), adj("capacity", -1, 1), adj("capacity", +1, 1), label=f"Nosnost ({unit})",
+                               sub=f"podle pravidel {num(rule_cap)} {unit}" + (
+                                   f" ({int(round(rule_cap * 20))} mn)" if not is_dh else "")))
+    if abs(cap - rule_cap) > 0.01:
+        def set_rule_cap(e):
+            c["capacity"] = rule_cap
+            app.save(c)
+            app.refresh()
+        load_rows.append(ft.TextButton(f"Nastavit nosnost podle pravidel ({num(rule_cap)} {unit})",
+                                       on_click=set_rule_cap))
 
     m = c["money"]
 
@@ -86,9 +97,11 @@ def batoh(app):
                 sub += " · střelná"
         elif i["category"] == "Zbroj":
             sub += f" · kvalita {i.get('quality', 0)}"
+        if i.get("price"):
+            sub += f" · {i['price']}"
         elif i["category"] == "Štít":
             sub += f" · obrana {fmt(int(i.get('defense', 1)))}"
-        right = f"{num(float(i.get('weight', 0)) * int(i.get('qty', 1)))} kg"
+        right = f"{num(float(i.get('weight', 0)) * int(i.get('qty', 1)))} {unit}"
         qty = f"×{i.get('qty', 1)}"
         return k.row_item(i["name"], right, sub=sub, badge=qty if int(i.get("qty", 1)) > 1 else None,
                           on_click=lambda e, i=i: edit_item(app, i))
@@ -104,7 +117,7 @@ def batoh(app):
         ft.Container(height=70),
     ]
     fab = ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=l.accent, foreground_color=l.on_accent,
-                                  tooltip="Přidat předmět", on_click=lambda e: edit_item(app, None))
+                                  tooltip="Přidat předmět", on_click=lambda e: catalog.open_add_menu(app))
     return Screen("Batoh", [column(controls)], fab=fab)
 
 
@@ -116,7 +129,7 @@ def edit_item(app, i: dict | None) -> None:
         ("name", "Název", g("name", ""), "text"),
         ("category", "Druh", g("category", "Ostatní"), "choice", CATEGORIES),
         ("qty", "Počet kusů", g("qty", 1), "int"),
-        ("weight", "Váha jednoho kusu (kg)", g("weight", 0), "float"),
+        ("weight", f"Váha jednoho kusu ({'lb' if is_dh else 'kg'})", g("weight", 0), "float"),
         ("equipped", "Vybaveno na těle (počítá se do boje)", g("equipped", False), "bool"),
         ("attack", "Zbraň: útočnost" if is_dh else "Zbraň: síla zbraně (SZ)", g("attack", 0), "int"),
         ("damage", "Zbraň: zranění" if is_dh else "Zbraň: útočnost (Út)", g("damage", 0), "int"),
@@ -125,6 +138,8 @@ def edit_item(app, i: dict | None) -> None:
         ("ranged", "Střelná zbraň", g("ranged", False), "bool"),
         ("quality", "Zbroj: kvalita", g("quality", 0), "int"),
     ]
+    if i is None:
+        fields.append(("save_tpl", "Uložit i do „Moje předměty“ (pro další postavy)", False, "bool"))
 
     def save(v):
         if not v["name"].strip():
@@ -134,8 +149,11 @@ def edit_item(app, i: dict | None) -> None:
         v["category"] = v["category"] or "Ostatní"
         v["qty"] = max(1, int(v["qty"]))
         v["weight"] = max(0.0, float(v["weight"]))
+        tpl = v.pop("save_tpl", False)
         if i is None:
             c["items"].append(model.item(**v))
+            if tpl:
+                catalog.save_template(app, c["system"], v)
         else:
             i.update(v)
         app.save(c)

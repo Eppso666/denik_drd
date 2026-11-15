@@ -22,8 +22,21 @@ Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si při
 - **Schopnosti povolání DrD** se doplňují samy podle povolání a úrovně (zloděj: tabulka Pravděpodobnost úspěchu
   zloděje + násobek opravy; hraničář: stopování a pes). Generátor je ukazuje pro úroveň 1–5 i se základními
   vlastnostmi povolání.
+- **Obory DrD od 6. úrovně** (Pravidla pro pokročilé): při postupu z 5. na 6. úroveň si postava vybere jeden ze
+  dvou oborů (bojovník/šermíř, druid/chodec, theurg/pyrofor, mág/čaroděj, lupič/sicco) a na kartě se jí ukážou
+  jeho schopnosti podle úrovně; lupič a sicco mají procenta z tabulek pro úrovně 6–15.
+- **Kouzla DrD**: kouzelník (a od 6. úrovně čaroděj či mág) si vybírá kouzla z PPZ (27) a od 6. úrovně i z PPP
+  (49) – s limitem počtu kouzel podle úrovně, jen ta, na která má magenergii, mág s omezením přímého sesílání.
+  Kouzlo jde seslat: odečte magenergii a hodí k% na úspěch podle inteligence. Magenergie podle tabulky.
+- **Pomocníci DrD**: tlačítko ⊕ u Vlastností – kouzelník si povolá černou kočku, havrana nebo ďáblíka, hraničář
+  psa (výběr nebo hod k%). Pod vlastnostmi se ukáže karta pomocníka s jeho vlastnostmi; pes po 5 úrovních
+  a přátelé čaroděje zesílí podle PPP.
+- **Portrét** postavy v kroužku (obrázek z galerie či disku).
 - **Vlastní dovednosti** (DH: vlastnost + stupeň; DrD: šance v %).
-- **Batoh**: předměty, výbava na těle, peníze, **naložení automaticky z vah nebo ručně**, nosnost.
+- **Batoh**: předměty, výbava na těle, peníze, **naložení automaticky z vah nebo ručně**, nosnost podle pravidel.
+  **Katalog z pravidel** (DrD: PPZ, DH: Příručka pro hráče): zbraně, střelné a vrhací zbraně, zbroje podle
+  velikosti rasy, štíty, výstroj – přidat nebo rovnou koupit (odečte cenu). Vlastní předměty lze uložit jako
+  šablony do „Moje předměty“.
 - **Kostky**: výběr dovednosti / zbraně / schopnosti / pasti, na kterou házíš, a volné hody.
 - **Souboj**: soupeř z bestiáře nebo vlastní, útok, obrana, zranění, iniciativa, průběh kol.
 - **Bestiář** zvlášť pro každou hru (DrD v klasickém zápisu: životaschopnost, útok, obrana, …), s obrázkem.
@@ -101,8 +114,12 @@ v aplikaci řešené rozumným výchozím nastavením a dají se upravit ručně
 - **DH – zranění v boji**: rozdíl útoku a obrany + zranění zbraně (vzorce ÚČ/OČ jsou z osobního deníku DH).
   Opakování hodu při šestce lze vypnout v Kostkách → Zbraň.
 - **DH – mana** jednotlivých povolání a přírůstek životů při postupu: zadávají se ručně.
-- **DrD – magenergie** a zkušenosti na další úroveň: zadávají se ručně.
-- **Nosnost**: výchozí hodnota je orientační, nastav ji v Batohu podle pravidel.
+- **DrD – magenergie**: kouzelník podle tabulky (PPZ 1–5, PPP 6–15), ostatní povolání a zkušenosti ručně.
+- **Nosnost a naložení**: podle Tabulky nosnosti (DrD 360 mn ± 30 mn za opravu SIL, 20 mn ≈ 1 kg; DH v librách)
+  a násobků nosnosti (do 4×).
+- **DrD – kvalita zbroje bez brnění je 1** (Tabulka kvality zbroje).
+- **Katalog a kouzla**: čísla jsou přepsaná ze skenů pravidel, popisy kouzel a schopností jsou jen stručná
+  připomenutí – podrobnosti vždy v pravidlech. Ceny jsou orientační (1 zl = 10 st = 100 md).
 - Hodnoty krolla v tabulkách DrD byly čteny ze skenu (obratnost −4, inteligence −6, charisma −5, rozsah charismy 1–11).
 
 Písma (Cinzel, IM Fell English SC, Alegreya Sans) mají licenci SIL Open Font License a stahují se při sestavení.

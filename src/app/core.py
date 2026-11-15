@@ -34,6 +34,9 @@ PARENTS: dict[str, str | None] = {
     "souboj": "kostky",
     "postup": "postava",
     "dovednosti": "postava",
+    "kouzla": "postava",
+    "obor": "postava",
+    "katalog": "batoh",
 }
 NAV = [("postava", "Postava", ft.Icons.PERSON_OUTLINE), ("batoh", "Batoh", ft.Icons.BACKPACK_OUTLINED),
        ("kostky", "Kostky", ft.Icons.CASINO_OUTLINED), ("bestiar", "Bestiář", ft.Icons.PETS_OUTLINED),

@@ -110,3 +110,31 @@ def test_drd_thief_and_ranger_abilities():
     for cls in drd.CLASSES:
         assert drd.class_abilities(cls, 1, attrs)
     assert "k4" in drd.DICE and "k20" in drd.DICE
+
+
+def test_wizard_tables():
+    from app.rules import drd_kouzla
+    assert drd_kouzla.wizard_mana(1, 17) == 8 and drd_kouzla.wizard_mana(5, 21) == 31
+    assert drd_kouzla.wizard_mana(6, 8) == 19 and drd_kouzla.wizard_mana(15, 20) == 91
+    assert drd_kouzla.spell_count(1) == 3 and drd_kouzla.spell_count(15) == 46
+    assert drd_kouzla.success_chance(17) == 85 and drd_kouzla.success_chance(9) == 32
+    assert len([s for s in drd_kouzla.SPELLS if s["source"] == "PPZ"]) == 27
+    assert len([s for s in drd_kouzla.SPELLS if s["source"] == "PPP"]) == 49
+
+
+def test_branch_abilities_and_thief_tables():
+    a = drd.class_abilities("Zloděj", 6, [10, 12, 10, 10, 12], "Lupič")
+    pre = next(x for x in a if x["name"] == "Převleky")
+    assert pre["pct"] == 28  # bonus CHA 12 = 0
+    a = drd.class_abilities("Válečník", 9, [16, 12, 15, 10, 10], "Bojovník")
+    names = {x["name"]: x["locked"] for x in a}
+    assert names["Drtivost"] is False and names["Vícenásobné útoky"] is True
+
+
+def test_capacity_rules():
+    from app import model
+    from app.rules import drd_vybava, dh_vybava
+    assert drd_vybava.carry_capacity_mn(0) == 360 and drd_vybava.carry_capacity_mn(4) == 480
+    assert dh_vybava.carry_capacity(0) == 15 and dh_vybava.carry_capacity(6) == 28
+    c = model.create_character("drd", "X", "Barbar", "Válečník", [19, 9, 15, 10, 5])
+    assert c["capacity"] == 24.0  # 480 mn
