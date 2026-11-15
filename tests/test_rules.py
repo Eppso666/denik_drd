@@ -150,3 +150,13 @@ def test_branch_mana_tables():
     assert drd.class_mana("Alchymista", 12, a, "Theurg") == 600
     assert drd.class_mana("Kouzelník", 6, a, "Mág") == 26
     assert drd.class_mana("Válečník", 6, a, "Bojovník") is None
+
+
+def test_weapon_combinations():
+    from app.rules import drd_vybava
+    items = {i["name"]: i for i in drd_vybava.catalog("Člověk")}
+    two = items["Dvě šavle"]
+    assert (two["attack"], two["damage"], two["defense"]) == (8, -2, 3)
+    assert two["weight_mn"] == 50 and two["price"] == "64 zl"  # součet dvou šavlí
+    assert items["Krátký meč a dýka"]["defense"] == 3
+    assert len([i for i in items.values() if "kombinace" in i["info"]]) == 6

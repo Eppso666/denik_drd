@@ -36,6 +36,33 @@ MELEE_2H = [
     ("Těžký kyj", 5, 4, -1, "1–2", 90, "2 zl", "těžká", "ztrácí iniciativu; rodová zbraň krolla"),
     ("Trojzubec", 6, 2, 2, "1–2", 95, "1 zl", "těžká", "ztrácí iniciativu"),
 ]
+# Kombinace dvou jednoručních zbraní (tabulka obouručních zbraní PPZ): váha i cena jsou součtem obou dílů,
+# díly lze používat i jednotlivě. (název, SZ, útočnost, OZ, délka, díly, skupina)
+COMBOS = [
+    ("Dvě dýky", 3, 1, 2, "1", ("Dýka", "Dýka"), "lehká"),
+    ("Tesák a dýka", 4, 0, 2, "1", ("Tesák", "Dýka"), "střední"),
+    ("Krátký meč a dýka", 5, 0, 3, "1", ("Krátký meč", "Dýka"), "střední"),
+    ("Dvě šavle", 8, -2, 3, "1", ("Šavle", "Šavle"), "těžká"),
+    ("Široký meč a dýka", 5, 1, 2, "1", ("Široký meč", "Dýka"), "těžká"),
+    ("Široký meč a tesák", 6, -2, 2, "1", ("Široký meč", "Tesák"), "těžká"),
+]
+
+
+def _price_zl(price: str) -> float:
+    zl = st = 0
+    for num, unit in __import__("re").findall(r"(\d+)\s*(zl|st)", price):
+        if unit == "zl":
+            zl += int(num)
+        else:
+            st += int(num)
+    return zl + st / 10
+
+
+def _fmt_zl(v: float) -> str:
+    zl, st = int(v), round((v - int(v)) * 10)
+    return f"{zl} zl" + (f" {st} st" if st else "")
+
+
 # Střelné: (název, SZ, útočnost, dostřel malý/střední/velký, váha mn, cena, poznámka)
 RANGED = [
     ("Krátký luk", 4, 0, (10, 20, 30), 7, "4 zl", ""),
@@ -115,6 +142,13 @@ def catalog(race: str | None = None) -> list[dict]:
             out.append({"group": "Zbraně na blízko", "name": name, "category": "Zbraň", "attack": sz,
                         "damage": ut, "defense": oz, "ranged": False, "weight_mn": mn, "price": price,
                         "info": f"{hands}, {grp} · délka {length}" + (f" · {note}" if note else "")})
+    one = {r[0]: r for r in MELEE_1H}
+    for name, sz, ut, oz, length, parts, grp in COMBOS:
+        mn = sum(one[p][5] for p in parts)
+        price = _fmt_zl(sum(_price_zl(one[p][6]) for p in parts))
+        out.append({"group": "Zbraně na blízko", "name": name, "category": "Zbraň", "attack": sz, "damage": ut,
+                    "defense": oz, "ranged": False, "weight_mn": mn, "price": price,
+                    "info": f"kombinace dvou jednoručních zbraní ({' + '.join(parts)}), {grp} · délka {length}"})
     for name, sz, ut, rng, mn, price, note in RANGED:
         out.append({"group": "Střelné a vrhací", "name": name, "category": "Zbraň", "attack": sz, "damage": ut,
                     "defense": RANGED_OZ, "ranged": True, "weight_mn": mn, "price": price,
