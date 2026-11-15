@@ -21,6 +21,8 @@ class Screen:
 
 
 # obrazovka -> rodič (None = kořen se spodní navigací)
+MAX_WIDTH = 640  # maximální šířka obsahu v px (vzhled jako na telefonu i na PC)
+
 PARENTS: dict[str, str | None] = {
     "start": None,
     "generator": "start",
@@ -166,9 +168,16 @@ class App:
                 indicator_color=look.accent if look.dark else look.card,
                 on_change=lambda e: self.go(NAV[e.control.selected_index][0]),
             )
+        # Na širokém displeji (PC) drží aplikace šířku telefonu/tabletu a je vycentrovaná;
+        # na telefonu je MAX_WIDTH větší než displej, takže se nic nemění.
+        frame = ft.Pagelet(
+            content=ft.Column(sc.controls, spacing=0, expand=True),
+            appbar=appbar, navigation_bar=nav, floating_action_button=sc.fab,
+            bgcolor=look.bg, expand=True, max_width=MAX_WIDTH,
+        )
         view = ft.View(
-            route="/" + self.screen, controls=sc.controls, appbar=appbar, navigation_bar=nav,
-            floating_action_button=sc.fab, bgcolor=look.bg, padding=0, spacing=0,
+            route="/" + self.screen, controls=[frame], bgcolor=look.border if not look.dark else "#0b0a0d",
+            padding=0, spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
         views: list[ft.View] = []
         if leading is not None and parent:
