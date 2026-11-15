@@ -110,5 +110,9 @@ def make_app():
         page = FakePage(web=web)
         app = core.App(page, set())
         app.store = MemoryStore()
+
+        async def no_pick():  # bez grafického klienta není výběr souborů
+            return None
+        app.pick_image = no_pick
         return app, page
     return _make

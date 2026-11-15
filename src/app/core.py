@@ -115,6 +115,8 @@ class App:
         if c:
             for img in c.get("images", []):
                 await self.store.delete_image(img["ref"])
+            if c.get("avatar"):
+                await self.store.delete_image(c["avatar"])
         await self.store.remove("char." + cid)
         await self.store.set_json("order", self.order)
 

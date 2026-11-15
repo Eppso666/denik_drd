@@ -8,6 +8,7 @@ import flet as ft
 from .. import model
 from ..rules import dh, drd
 from ..rules.common import fmt
+from . import avatar as avatar_ui
 from .kit import column
 
 
@@ -20,13 +21,9 @@ def postava(app):
     r = model.rules(c["system"])
     is_dh = c["system"] == "dh"
 
-    initials = "".join(p[0] for p in c["name"].split()[:2]).upper() or "?"
-    avatar = ft.Container(
-        ft.Text(initials, size=24, weight=ft.FontWeight.BOLD, color=l.accent, font_family=k.hf),
-        width=68, height=68, alignment=ft.Alignment.CENTER, bgcolor=l.card2 if is_dh else l.card,
-        border=ft.Border.all(2 if is_dh else 3, l.accent),
-        border_radius=ft.BorderRadius.all(18 if is_dh else 34),
-    )
+    avatar = avatar_ui.avatar(app, c, 68, 18 if is_dh else 34, l.accent, l.card2 if is_dh else l.card,
+                              border=2 if is_dh else 3, font_family=k.hf,
+                              on_click=lambda e: avatar_ui.avatar_menu(app, c))
     xp = f"Zkušenosti {c['xp']}" + (f" / {c['xp_next']}" if c.get("xp_next") else "")
     header = ft.Row([
         avatar,

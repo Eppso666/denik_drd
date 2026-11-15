@@ -6,6 +6,7 @@ import flet as ft
 from .. import model, theme
 from ..rules import dh, drd
 from ..rules.common import fmt
+from . import avatar as avatar_ui
 from .kit import column
 
 SYS = {"dh": dh, "drd": drd}
@@ -47,12 +48,7 @@ def character_card(app, c: dict) -> ft.Control:
     l = app.look
     own = theme.for_system(c["system"])
     r = SYS[c["system"]]
-    initials = "".join(p[0] for p in c["name"].split()[:2]).upper() or "?"
-    avatar = ft.Container(
-        ft.Text(initials, size=20, weight=ft.FontWeight.BOLD, color=own.accent),
-        width=56, height=56, alignment=ft.Alignment.CENTER, bgcolor=own.bg if own.key == "drd" else l.card2,
-        border=ft.Border.all(2, own.accent), border_radius=ft.BorderRadius.all(14),
-    )
+    avatar = avatar_ui.avatar(app, c, 56, 14, own.accent, own.bg if own.key == "drd" else l.card2)
     badge = k.badge(r.SHORT, color=own.accent if own.key == "dh" else own.bg,
                     fg=own.on_accent if own.key == "dh" else own.accent)
 
@@ -238,7 +234,8 @@ def generator(app):
     def create(e):
         c = model.create_character(s, u.get("gen_name", ""), u["gen_race"], u["gen_cls"], u["gen_attrs"])
         app.add_character(c)
-        app.open_character(c["id"])
+        app.go("start")
+        app.toast(f"Postava {c['name']} byla vytvořena.")
 
     controls = [
         k.muted("PRAVIDLA", size=12, weight=ft.FontWeight.BOLD),

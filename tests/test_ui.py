@@ -99,8 +99,36 @@ def test_generator_both_systems_manual_and_auto(make_app):
     buttons = [c for c, a, h in handlers(page.views) if isinstance(c, ft.FilledButton)]
     buttons[-1].on_click(Ev(buttons[-1]))
     drain(page)
-    assert app.char and app.char["system"] == "drd" and app.char["name"] == "Elwin"
-    assert app.screen == "postava"
+    # po vytvoření se aplikace vrátí na seznam postav
+    assert app.screen == "start"
+    c = app.chars[app.order[0]]
+    assert c["system"] == "drd" and c["name"] == "Elwin"
+
+
+def test_avatar_pick_and_remove(make_app):
+    import asyncio
+    from app.ui import avatar as avatar_ui
+    app, page = make_app()
+    c = model.create_character("drd", "Elwin Stříbrný", "Elf", "Kouzelník", [10, 12, 10, 16, 14])
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+
+    async def fake_pick():
+        return b"\x89PNG fake"
+    app.pick_image = fake_pick
+    asyncio.run(avatar_ui.pick_avatar(app, c))
+    drain(page)
+    assert c["avatar"] and app.images[c["avatar"]] == b"\x89PNG fake"
+    app.go("postava")
+    assert any(isinstance(x, ft.Image) for v in page.views for x in walk(v))
+    app.go("start")
+    assert any(isinstance(x, ft.Image) for v in page.views for x in walk(v))
+    avatar_ui.avatar_menu(app, c)
+    assert page.dialogs
+    asyncio.run(avatar_ui.remove_avatar(app, c))
+    drain(page)
+    assert c["avatar"] is None
 
 
 def test_start_empty_and_list(make_app):
