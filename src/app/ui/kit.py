@@ -144,7 +144,8 @@ class Kit:
         core = ft.Row([
             btn(ft.Icons.REMOVE, on_minus, "Snížit"),
             ft.Container(self.text(value, size=20, weight=ft.FontWeight.BOLD, head=True, color=value_color,
-                                   align=ft.TextAlign.CENTER), width=52, alignment=ft.Alignment.CENTER),
+                                   align=ft.TextAlign.CENTER), width=52 if len(str(value)) <= 3 else 72,
+                         alignment=ft.Alignment.CENTER),
             btn(ft.Icons.ADD, on_plus, "Zvýšit"),
         ], spacing=4, tight=True)
         if label is None:

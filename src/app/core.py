@@ -57,6 +57,9 @@ class App:
         self.active: str | None = None
         self.screen = "start"
         self.ui: dict[str, Any] = {}
+        # Pozice posuvníku: překreslení téže obrazovky (krokování +/−, výběr karty) nesmí skočit nahoru.
+        self._scroll: dict[str, float] = {}
+        self._rendered: str | None = None
         self.images: dict[str, bytes] = {}
         self._loading_images: set[str] = set()
 
@@ -191,7 +194,39 @@ class App:
         views.append(view)
         self.page.views.clear()
         self.page.views.extend(views)
+        self._keep_scroll(sc)
         self.page.update()
+        self._restore_scroll()
+
+    def _main_column(self, sc: "Screen") -> ft.Column | None:
+        for ctrl in sc.controls:
+            col = getattr(ctrl, "content", None) if isinstance(ctrl, ft.Container) else ctrl
+            if isinstance(col, ft.Column) and col.scroll:
+                return col
+        return None
+
+    def _keep_scroll(self, sc: "Screen") -> None:
+        same = self._rendered == self.screen
+        self._rendered = self.screen
+        if not same:
+            self._scroll.pop(self.screen, None)
+        self._col = self._main_column(sc)
+        if self._col is None:
+            return
+        screen = self.screen
+
+        def remember(e) -> None:
+            self._scroll[screen] = float(getattr(e, "pixels", 0) or 0)
+        self._col.on_scroll = remember
+        self._col.scroll_interval = 50
+
+    def _restore_scroll(self) -> None:
+        off = self._scroll.get(self.screen, 0)
+        if self._col is not None and off > 0:
+            try:
+                self.run(self._col.scroll_to(offset=off, duration=0))
+            except Exception:  # pragma: no cover - ovládací prvek ještě není na stránce
+                pass
 
     async def on_view_pop(self, e) -> None:
         self.back()
