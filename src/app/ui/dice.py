@@ -89,20 +89,22 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
     wi = min(app.ui.get("dice_weapon", 0), len(ws) - 1)
     rows = []
     for idx, w in enumerate(ws):
-        uc = r.weapon_uc(w, c["attrs"])
+        uc = model.uc(c, w)
         rows.append(k.card(ft.Row([
             ft.Column([k.text(w["name"], size=15, weight=ft.FontWeight.W_600),
                        k.muted("střelná" if w.get("ranged") else "boj tváří v tvář")], spacing=2, expand=True),
             k.text(f"ÚČ {uc}", size=20, weight=ft.FontWeight.BOLD, head=True),
         ]), accent=idx == wi, on_click=lambda e, idx=idx: app.go("kostky", dice_weapon=idx), padding=12))
     w = ws[wi]
-    uc = r.weapon_uc(w, c["attrs"])
+    uc = model.uc(c, w)
+
+    pen, why = model.combat_penalty(c)
 
     def attack(e):
         rolls = open_d6() if exploding else [d(6)]
-        total = uc + sum(rolls)
-        _push(app, f"Útok · {w['name']}", total, f"ÚČ {uc} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})",
-              l.accent)
+        total = uc + sum(rolls) + pen
+        _push(app, f"Útok · {w['name']}", total, f"ÚČ {uc} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})" +
+              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.accent)
 
     out = rows + [
         k.muted(f"Útok = ÚČ + {'k6+ (šestka se hází znovu)' if exploding else 'k6'}. Obránce hází OČ + "
@@ -198,9 +200,9 @@ def kostky(app):
                                   lambda e: app.go("kostky", dice_pm=pm + 5), label="Úprava od PJ"))
 
             def roll_pct(e):
-                p, ok = drd.percent(chance)
-                _push(app, a["name"], p, f"{'Úspěch' if ok else 'Neúspěch'} – padlo {p}, šance {chance} %",
-                      l.ok if ok else l.bad)
+                p, _ = drd.percent(chance)
+                ok, txt = drd.pct_text(p, chance, c["level"])
+                _push(app, a["name"], p, txt, l.ok if ok else l.bad)
             body.append(k.button(f"Hodit k% · šance {chance} %", roll_pct))
 
     elif tab == "Past":
@@ -252,8 +254,14 @@ def _default_foe(app) -> dict:
 
 def foe_from_beast(b: dict) -> dict:
     hp = int(b.get("hp", 10) or 10)
+    size = str(b.get("size", "") or "B").strip().upper()[:2]
+    if size not in drd.SIZES:
+        size = "B"
     return {"name": b.get("name", "Soupeř"), "uc": int(b.get("uc", 0)), "oc": int(b.get("oc", 0)), "hp": hp,
-            "hp_max": hp, "dmg": int(b.get("dmg", 0))}
+            "hp_max": hp, "dmg": int(b.get("dmg", 0)), "size": size}
+
+
+RANGES = ["malý", "střední", "velký"]
 
 
 def souboj(app):
@@ -276,8 +284,26 @@ def souboj(app):
     ws = model.weapons(c)
     wi = min(app.ui.get("dice_weapon", 0), len(ws) - 1)
     w = ws[wi]
-    uc = r.weapon_uc(w, c["attrs"])
+    uc = model.uc(c, w)
     my_oc = model.oc(c, w)
+    pen, why = model.combat_penalty(c)
+    my_size = model.size(c)
+    foe_size = foe.get("size", "B")
+    dist = app.ui.get("fight_range", "střední")
+    if is_dh:
+        att_mod, foe_mod, mod_txt = pen, 0, ", ".join(why)
+    elif w.get("ranged"):
+        rmod = {"malý": 1, "střední": 0, "velký": -1}[dist]
+        att_mod = pen + rmod + drd.ranged_size_mod(foe_size)
+        foe_mod = 0
+        mod_txt = ", ".join(why + [f"dostřel {dist} {fmt(rmod)}"] +
+                            ([f"cíl {foe_size} +1"] if drd.ranged_size_mod(foe_size) else []))
+    else:
+        smod = drd.size_mod(my_size, foe_size)
+        att_mod = pen + smod
+        foe_mod = drd.size_mod(foe_size, my_size)
+        mod_txt = ", ".join(why + ([f"velikost {my_size} proti {foe_size} {fmt(smod)}"] if smod else []))
+    def_mod = pen  # postih za zranění, naložení či únavu platí i pro obranu
 
     def roll():
         return open_d6() if exploding else [d(6)]
@@ -288,11 +314,12 @@ def souboj(app):
 
     def my_attack(e):
         a, dd = roll(), roll()
-        at, de = uc + sum(a), foe["oc"] + sum(dd)
+        at, de = uc + sum(a) + att_mod, foe["oc"] + sum(dd)
         wound = r.wound(at, de, int(w.get("damage", 0)))
+        mtxt = f" {fmt(att_mod)}" if att_mod else ""
         if wound:
             foe["hp"] = foe["hp"] - wound
-            note(f"Útok {at} ({uc}+{roll_expr(a)}) proti obraně {de} ({foe['oc']}+{roll_expr(dd)}) – zásah za {wound}",
+            note(f"Útok {at} ({uc}+{roll_expr(a)}{mtxt}) proti obraně {de} ({foe['oc']}+{roll_expr(dd)}) – zásah za {wound}",
                  l.accent)
             if foe["hp"] <= 0:
                 note(f"{foe['name']} padl!", l.ok)
@@ -303,13 +330,16 @@ def souboj(app):
 
     def foe_attack(e):
         a, dd = roll(), roll()
-        at, de = foe["uc"] + sum(a), my_oc + sum(dd)
+        at, de = foe["uc"] + sum(a) + foe_mod, my_oc + sum(dd) + def_mod
         wound = r.wound(at, de, foe["dmg"])
         if wound:
             c["hp"] -= wound
             model.add_history(c, f"Zranění od: {foe['name']}", f"−{wound}")
             app.save(c)
             note(f"{foe['name']}: útok {at} proti tvé obraně {de} – zranění {wound}", l.bad)
+            st = model.status(c)
+            if st:
+                note(f"Ty: {st[0]}", l.bad)
         else:
             note(f"{foe['name']}: útok {at} proti tvé obraně {de} – ubránil ses", l.ok)
         app.refresh()
@@ -334,7 +364,7 @@ def souboj(app):
                 nf = foe_from_beast(b)
             else:
                 nf = {"name": v["name"] or "Soupeř", "uc": v["uc"], "oc": v["oc"], "hp": v["hp"], "hp_max": v["hp"],
-                      "dmg": v["dmg"]}
+                      "dmg": v["dmg"], "size": v.get("size") or "B"}
             nf["sys"] = c["system"]
             app.ui["foe"] = nf
             app.ui["fight_log"] = []
@@ -343,19 +373,23 @@ def souboj(app):
         app.form("Soupeř", [("pick", "Z bestiáře", "(vlastní)", "choice", names),
                             ("name", "Jméno", foe["name"], "text"), ("uc", "ÚČ", foe["uc"], "int"),
                             ("oc", "OČ", foe["oc"], "int"), ("hp", "Životy", foe["hp_max"], "int"),
-                            ("dmg", "Zranění zbraně / útočnost", foe["dmg"], "int")], save, save_label="Nastavit")
+                            ("dmg", "Zranění zbraně / útočnost", foe["dmg"], "int")] +
+                 ([] if is_dh else [("size", "Velikost (A0, A, B, C, D, E)", foe.get("size", "B"), "choice", drd.SIZES)]),
+                 save, save_label="Nastavit")
 
     me_card = k.card(ft.Column([
         k.muted("TY", size=11, weight=ft.FontWeight.BOLD),
         k.text(c["name"].split()[0], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
         k.muted(w["name"], max_lines=1),
-        k.text(f"ÚČ {uc} · OČ {my_oc}", size=17, weight=ft.FontWeight.BOLD, head=True, color=l.accent),
+        k.text(f"ÚČ {uc} · {'OČ' if is_dh else 'obr.'} {my_oc}", size=17, weight=ft.FontWeight.BOLD, head=True,
+               color=l.accent),
+        k.muted(f"velikost {my_size}" + (f" · postih {pen}" if pen else ""), size=12),
         k.bar(c["hp"], c["hp_max"], l.hp), k.muted(f"Životy {c['hp']} / {c['hp_max']}"),
     ], spacing=3), padding=12)
     foe_card = k.card(ft.Column([
         k.muted("SOUPEŘ", size=11, weight=ft.FontWeight.BOLD),
         k.text(foe["name"], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
-        k.muted(f"zranění {fmt(foe['dmg'])}"),
+        k.muted(f"zranění {fmt(foe['dmg'])}" + ("" if is_dh else f" · velikost {foe_size}")),
         k.text(f"ÚČ {foe['uc']} · OČ {foe['oc']}", size=17, weight=ft.FontWeight.BOLD, head=True, color=l.mana),
         k.bar(max(0, foe["hp"]), foe["hp_max"], l.hp), k.muted(f"Životy {foe['hp']} / {foe['hp_max']}"),
     ], spacing=3), padding=12, on_click=edit_foe)
@@ -368,6 +402,9 @@ def souboj(app):
                vertical_alignment=ft.CrossAxisAlignment.START),
         k.muted("Klepnutím na soupeře ho změníš nebo vybereš z bestiáře.", size=12),
         weapon_pills,
+        *([k.pills(RANGES, dist, lambda v: app.go("souboj", fight_range=v), equal=True)]
+          if (w.get("ranged") and not is_dh) else []),
+        *([k.muted(f"Opravy útoku: {mod_txt} = {fmt(att_mod)}", size=12)] if (att_mod or mod_txt) else []),
         ft.Row([k.button("Útočím", my_attack, expand=1), k.button("Soupeř útočí", foe_attack, primary=False, expand=1)],
                spacing=8),
         ft.Row([k.button("Iniciativa", initiative, primary=False, expand=1),

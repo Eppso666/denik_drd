@@ -119,6 +119,19 @@ class Kit:
         items = [self.pill(o, o == selected, lambda e, o=o: on_pick(o), expand=1 if equal else None) for o in options]
         return ft.Row(items, wrap=wrap and not equal, spacing=6, run_spacing=6)
 
+    def search(self, value: str, on_search: Callable[[str], None], hint: str = "Hledat…") -> ft.Control:
+        """Vyhledávací pole – hledá po Enteru nebo lupě (překreslení při psaní by bralo fokus)."""
+        field = ft.TextField(
+            value=value or "", hint_text=hint, dense=True, expand=True, border_color=self.l.border,
+            focused_border_color=self.l.accent, color=self.l.ink, cursor_color=self.l.accent,
+            prefix_icon=ft.Icons.SEARCH, on_submit=lambda e: on_search((field.value or "").strip()),
+        )
+        row: list[ft.Control] = [field, self.icon_button(ft.Icons.ARROW_FORWARD, lambda e: on_search(
+            (field.value or "").strip()), "Hledat")]
+        if value:
+            row.append(self.icon_button(ft.Icons.CLOSE, lambda e: on_search(""), "Zrušit hledání"))
+        return ft.Row(row, spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
     def icon_button(self, icon, on_click, tooltip: str, color: str | None = None) -> ft.IconButton:
         return ft.IconButton(icon=icon, on_click=on_click, tooltip=tooltip, icon_color=color or self.l.ink)
 
@@ -182,3 +195,16 @@ def column(controls: list[ft.Control], spacing: int = 12, scroll: bool = True, p
 
 
 Handler = Optional[Callable]
+
+
+def fold(s: str) -> str:
+    """Malá písmena bez diakritiky – pro hledání."""
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFD", str(s).lower()) if unicodedata.category(ch) != "Mn")
+
+
+def matches(query: str, *texts) -> bool:
+    if not query:
+        return True
+    hay = fold(" ".join(str(t) for t in texts if t))
+    return all(w in hay for w in fold(query).split())

@@ -169,8 +169,8 @@ def weapon_uc(weapon: dict, attrs: list[int]) -> int:
 
 
 def defense_oc(attrs: list[int], armor_quality: int, weapon_def: int, shield: int) -> int:
-    """OČ = oprava OBR + kvalita zbroje + obrana zbraně (+1 se štítem)."""
-    return bonus(attrs[1]) + armor_quality + weapon_def + shield
+    """Obrana celkem = OČ (oprava OBR + kvalita zbroje, nejméně 0) + obrana zbraně + štít."""
+    return max(0, bonus(attrs[1]) + armor_quality) + weapon_def + shield
 
 
 def wound(attack_total: int, defense_total: int, weapon_damage: int) -> int:
@@ -190,6 +190,149 @@ def trap(attr_bonus: int, danger: int, rng: random.Random | None = None) -> tupl
 def percent(chance: int, rng: random.Random | None = None) -> tuple[int, bool]:
     p = d(100, rng)
     return p, p <= chance
+
+
+def pct_outcome(roll: int, chance: int, level: int = 1) -> tuple[bool, str | None]:
+    """Výsledek hodu k%: (úspěch, zvláštní výsledek).
+
+    Fatální neúspěch: číslo dělitelné deseti větší než šance (PPZ s. 82; 100 = „00“).
+    Totální úspěch: od 6. úrovně číslo dělitelné deseti menší než šance (PPP s. 5).
+    """
+    ok = roll <= chance
+    if roll % 10 == 0 and roll > chance:
+        return False, "fatální neúspěch"
+    if roll % 10 == 0 and roll < chance and int(level) >= 6:
+        return True, "totální úspěch"
+    return ok, None
+
+
+def pct_text(roll: int, chance: int, level: int = 1) -> tuple[bool, str]:
+    ok, special = pct_outcome(roll, chance, level)
+    word = special.capitalize() if special else ("Úspěch" if ok else "Neúspěch")
+    return ok, f"{word} – padlo {roll}, šance {chance} %"
+
+
+# --- souboj: velikost, bojeschopnost, naložení (PPZ s. 71–72) ---------------------------------
+
+SIZES = ["A0", "A", "B", "C", "D", "E"]
+# Tabulka rozdílu velikostí: řádek = velikost obránce, sloupec = velikost útočníka
+SIZE_DIFF = {
+    "A0": [0, 2, 3, 4, 0, -2],
+    "A": [-2, 0, 1, 2, 0, -1],
+    "B": [-3, -1, 0, 1, 2, 0],
+    "C": [-4, -2, -1, 0, 1, 2],
+    "D": [-5, -3, -2, -1, 0, 1],
+    "E": [-7, -4, -3, -2, -1, 0],
+}
+RACE_SIZE = {"Hobit": "A", "Kudůk": "A", "Trpaslík": "A", "Elf": "B", "Člověk": "B", "Barbar": "B", "Kroll": "C"}
+
+
+def size_mod(attacker: str, defender: str) -> int:
+    """Oprava hodu na útok tváří v tvář podle Tabulky rozdílu velikostí."""
+    if attacker not in SIZES or defender not in SIZES:
+        return 0
+    return SIZE_DIFF[defender][SIZES.index(attacker)]
+
+
+def ranged_size_mod(defender: str) -> int:
+    """Střelba: na cíl velikosti D nebo E +1 (u A0 postih určí PJ)."""
+    return 1 if defender in ("D", "E") else 0
+
+
+# Tabulka bojeschopnosti: (odolnost do, část životů pro mez vyřazení / None = 1 život, postih)
+FITNESS = [(5, 4, -3), (11, 6, -2), (16, 8, -1), (99, None, 0)]
+
+
+def _fitness_row(odl: int) -> tuple[int | None, int]:
+    for top, div, pen in FITNESS:
+        if odl <= top:
+            return div, pen
+    return None, 0
+
+
+def knockout_limit(hp_max: int, odl: int) -> int:
+    """Mez vyřazení: část maxima životů podle odolnosti, zaokrouhleno aritmeticky, nejméně 1 život."""
+    div, _ = _fitness_row(odl)
+    if not div:
+        return 1
+    return max(1, int(hp_max / div + 0.5))
+
+
+def wound_penalty(hp: int, hp_max: int, odl: int) -> int:
+    """Postih k útoku i obraně, má-li postava méně než třetinu životů."""
+    _, pen = _fitness_row(odl)
+    return pen if hp_max > 0 and hp * 3 < hp_max else 0
+
+
+def is_knocked_out(hp: int, hp_max: int, odl: int) -> bool:
+    return hp <= knockout_limit(hp_max, odl)
+
+
+# Od 10. úrovně pevný přírůstek životů bez opravy za odolnost (PPP s. 5, Tabulka růstu životů)
+HP_FIXED = {"Válečník": 2, "Hraničář": 2, "Alchymista": 1, "Kouzelník": 1, "Zloděj": 1}
+HP_FIXED_LEVEL = 10
+
+# Tabulka zkušenosti (PPZ s. 32 pro 1.–6., PPP s. 5 pro 7.–16.): úroveň -> (zkušenost, cena výcviku v zl)
+_XP = {
+    "Válečník": [0, 450, 900, 1825, 3675, 7400, 15000, 30000, 55000, 83000, 114000, 148000, 185000, 225000, 268000, 314000],
+    "Hraničář": [0, 525, 1050, 2075, 4125, 8225, 16350, 32500, 57500, 85500, 116500, 150500, 187500, 227500, 270500, 316500],
+    "Alchymista": [0, 575, 1150, 2300, 4650, 9325, 18700, 37500, 62500, 90500, 121500, 155500, 192500, 232500, 275500, 321500],
+    "Kouzelník": [0, 610, 1250, 2575, 5250, 10750, 22000, 45000, 70000, 98000, 129000, 163000, 200000, 240000, 283000, 329000],
+    "Zloděj": [0, 325, 730, 1575, 3450, 7450, 16150, 35000, 60000, 88000, 119000, 153000, 190000, 230000, 273000, 319000],
+}
+_XP_COST = {
+    "Válečník": [0, 2, 4, 8, 13, 19, 26, 34, 43, 53, 64, 77, 90, 105, 120, 137],
+    "Hraničář": [0, 2, 4, 8, 13, 19, 26, 34, 44, 54, 66, 78, 92, 107, 123, 140],
+    "Alchymista": [0, 2, 4, 8, 13, 19, 26, 35, 44, 55, 67, 79, 94, 109, 125, 142],
+    "Kouzelník": [0, 2, 4, 8, 13, 19, 27, 35, 45, 55, 67, 80, 94, 110, 126, 144],
+    "Zloděj": [0, 2, 4, 8, 12, 18, 25, 32, 41, 51, 61, 73, 86, 99, 114, 130],
+}
+MAX_XP_LEVEL = 16
+
+
+def xp_for_level(cls: str, level: int) -> int | None:
+    """Zkušenost potřebná pro danou úroveň (None = tabulka nesahá tak vysoko)."""
+    row = _XP.get(cls)
+    if not row or not 1 <= int(level) <= MAX_XP_LEVEL:
+        return None
+    return row[int(level) - 1]
+
+
+def training_cost(cls: str, level: int) -> int | None:
+    row = _XP_COST.get(cls)
+    if not row or not 1 <= int(level) <= MAX_XP_LEVEL:
+        return None
+    return row[int(level) - 1]
+
+
+def level_for_xp(cls: str, xp: int) -> int:
+    row = _XP.get(cls, _XP["Válečník"])
+    return max(i + 1 for i, v in enumerate(row) if xp >= v)
+
+
+# Pohyblivost a postřeh (PPZ s. 83 a 86)
+RACE_MOVE = {"Hobit": 10, "Kudůk": 9, "Trpaslík": 8, "Elf": 12, "Člověk": 11, "Barbar": 12, "Kroll": 11}
+LOAD_MOVE = [(1, 1.0), (2, 0.75), (3, 0.5), (4, 0.25)]
+
+
+def base_movement(race: str, attrs: list[int]) -> int:
+    return RACE_MOVE.get(race, 11) + bonus(attrs[1]) + 2 * bonus(attrs[0])
+
+
+def movement(race: str, attrs: list[int], load_ratio: float) -> int:
+    """Okamžitá pohyblivost podle naložení (čtvrtiny se zaokrouhlují nahoru)."""
+    import math
+    base = base_movement(race, attrs)
+    part = next((p for top, p in LOAD_MOVE if load_ratio <= top), 0.25)
+    return max(1, math.ceil(base * part))
+
+
+def perception(race: str, attrs: list[int]) -> tuple[int, int]:
+    """Postřeh (k%): na objekty = INT (+5 kroll, barbar, trpaslík); na mechanismy = INT/2 (+5 elf, hobit, kudůk)."""
+    intel = attrs[3]
+    obj = intel + (5 if race in ("Kroll", "Barbar", "Trpaslík") else 0)
+    mech = intel // 2 + (5 if race in ("Elf", "Hobit", "Kudůk") else 0)
+    return obj, mech
 
 
 def combat_roll(rng: random.Random | None = None) -> list[int]:

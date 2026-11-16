@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import flet as ft
 
-from .. import model, theme
+from .. import model, theme, version
+from ..version import VERSION
 from ..rules import dh, drd
 from ..rules.common import fmt
 from . import avatar as avatar_ui
+from . import backup
 from .kit import column
 
 SYS = {"dh": dh, "drd": drd}
@@ -18,6 +20,22 @@ def start(app):
     k = app.kit
     l = app.look
     controls: list[ft.Control] = [k.muted("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.accent)]
+    seen = app.settings.get("seen_version")
+    if seen != VERSION:
+        news = version.news_since(seen) if app.order else []
+        if not news:
+            app.settings["seen_version"] = VERSION
+            app.save(settings=True)
+        else:
+            def ok(e):
+                app.settings["seen_version"] = VERSION
+                app.save(settings=True)
+                app.refresh()
+            lines: list[ft.Control] = [k.text(f"Nová verze {VERSION}", size=17, weight=ft.FontWeight.BOLD, head=True)]
+            for v, items in news:
+                lines += [k.muted(f"• {t}", size=13) for t in items]
+            lines.append(ft.Row([ft.TextButton("Rozumím", on_click=ok)], alignment=ft.MainAxisAlignment.END))
+            controls.append(k.card(ft.Column(lines, spacing=4), accent=True))
 
     if not app.order:
         controls.append(k.card(ft.Column([
@@ -34,12 +52,14 @@ def start(app):
         controls.append(k.button("Nová postava", lambda e: open_generator(app), primary=False, icon=ft.Icons.ADD))
 
     controls.append(ft.Container(height=8))
+    controls.append(backup.backup_card(app))
     controls.append(k.section("Kampaně a družina"))
     controls.append(k.card(ft.Column([
         k.text("Propojení s ostatními hráči", size=15, weight=ft.FontWeight.W_600),
         k.muted("Sdílené kampaně, hody družiny a mapy od PJ přibudou v další verzi (Supabase). "
                 "Tato verze ukládá vše jen v tomto zařízení.", size=13),
     ], spacing=4)))
+    controls.append(k.muted(f"Verze {VERSION}", size=12, align=ft.TextAlign.CENTER))
     return Screen("Tvoje postavy", [column(controls)])
 
 

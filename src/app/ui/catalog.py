@@ -6,12 +6,13 @@ import re
 import flet as ft
 
 from .. import model
-from ..rules import dh_vybava, drd_vybava
+from ..rules import dh, dh_vybava, drd_vybava
 from ..rules.common import fmt
-from .kit import column
+from .kit import column, matches
 
 MINE = "Moje předměty"
-ITEM_KEYS = ("name", "category", "weight", "attack", "damage", "defense", "ranged", "quality", "price", "info")
+ITEM_KEYS = ("name", "category", "weight", "attack", "damage", "defense", "ranged", "quality", "price", "info",
+             "range", "hands", "sil_req")
 
 
 def rules_catalog(c: dict) -> list[dict]:
@@ -103,7 +104,11 @@ def katalog(app):
     grp = app.ui.get("cat_group") or groups[0]
     if grp not in groups:
         grp = groups[0]
-    if grp == MINE:
+    q = app.ui.get("cat_q", "")
+    if q:
+        mine = [dict(t, group=MINE) for t in custom_templates(app, c["system"])]
+        shown = [i for i in items + mine if matches(q, i["name"], i.get("info"), i["group"])]
+    elif grp == MINE:
         shown = [dict(t, group=MINE) for t in custom_templates(app, c["system"])]
     else:
         shown = [i for i in items if i["group"] == grp]
@@ -112,6 +117,8 @@ def katalog(app):
     for it in shown:
         sub = " · ".join(x for x in (stats_label(c, it), it.get("info", "")) if x)
         right = " · ".join(x for x in (it.get("price") or "", weight_label(c, it)) if x)
+        if q:
+            sub = " · ".join(x for x in (it["group"], sub) if x)
         rows.append(k.row_item(it["name"], right, sub=sub, on_click=lambda e, it=it: item_dialog(app, it)))
     size = (dh_vybava.RACE_SIZE if c["system"] == "dh" else drd_vybava.RACE_SIZE).get(c["race"], "B")
     note = ("Ceny jsou podle pravidel jen orientační. Zbroje jsou pro velikost "
@@ -121,8 +128,13 @@ def katalog(app):
     else:
         note += " Hmotnost v librách (1 lb ≈ 1 kg). Těžší zbraně a zbroje vyžadují opravu za Sílu."
     controls = [
-        k.pills(groups, grp, lambda v: app.go("katalog", cat_group=v)),
+        k.search(q, lambda v: app.go("katalog", cat_q=v), "Hledat ve všech skupinách…"),
+    ]
+    if not q:
+        controls.append(k.pills(groups, grp, lambda v: app.go("katalog", cat_group=v, cat_q="")))
+    controls += [
         k.list_card(rows) if rows else k.empty(
+            f"Nic neodpovídá hledání „{q}“." if q else
             "Zatím žádné vlastní šablony. Ulož si je při vytváření vlastního předmětu."
             if grp == MINE else "Prázdné."),
         k.muted(note, size=12),
@@ -181,6 +193,17 @@ def item_dialog(app, it: dict) -> None:
         body.append(k.muted(it["info"], size=13))
     body.append(k.muted(" · ".join(x for x in (f"cena {it['price']}" if it.get("price") else "",
                                                f"váha {weight_label(c, it)}") if x), size=13))
+    if c["system"] == "drd":
+        prob = drd_vybava.gear_problem(c["cls"], it)
+    else:
+        req = it.get("sil_req")
+        sil = dh.bonus(c["attrs"][0])
+        prob = (f"Potřebuje Sílu {'+' if req > 0 else ''}{req}, máš {sil:+d} – při nošení dostaneš body únavy navíc."
+                if req is not None and sil < int(req) else None)
+    if prob:
+        body.append(k.text(prob, size=13, color=l.warn))
+    if int(it.get("hands", 1)) >= 2 and it["category"] == "Zbraň":
+        body.append(k.muted("Drží se oběma rukama – štít s ní nelze použít.", size=12))
     body += [qty_field, equip]
     actions: list[ft.Control] = []
     if it.get("group") == MINE:

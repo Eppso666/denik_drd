@@ -44,7 +44,7 @@ MANA_NAME = {
     "Alchymista": "Mana",
     "Kouzelník": "Mana",
     "Zloděj": "",
-    "Klerik": "Mana",
+    "Klerik": "Přízeň",
 }
 
 # Zbraně a zbroje dle povolání: (název, útočnost, zranění, obrana, střelná), zbroj (název, kvalita)
@@ -179,3 +179,112 @@ def wound(attack_total: int, defense_total: int, weapon_damage: int) -> int:
 
 def combat_roll(exploding: bool, rng: random.Random | None = None) -> list[int]:
     return open_d6(rng) if exploding else [d(6, rng)]
+
+
+# --- rozvoj postavy (kapitola Rozvoj postavy) --------------------------------------------------
+
+# Tabulka dovednostních bodů: násobek úrovně za přestup
+SKILL_POINTS = {"Válečník": 3, "Hraničář": 5, "Alchymista": 4, "Kouzelník": 3, "Zloděj": 8, "Klerik": 3}
+
+# Tabulka zkušeností: úroveň 1–24
+XP_TABLE = [0, 550, 1100, 2200, 4400, 8500, 15000, 24000, 36000, 51000, 69000, 90000, 114000, 141000, 170000,
+            200000, 230000, 260000, 290000, 320000, 350000, 380000, 410000, 440000]
+MAX_LEVEL = 24
+ATTR_UP_EVERY = 3  # na každé třetí úrovni 2 charakterové body do dvou různých atributů
+
+
+def xp_for_level(level: int) -> int | None:
+    return XP_TABLE[int(level) - 1] if 1 <= int(level) <= MAX_LEVEL else None
+
+
+def level_for_xp(xp: int) -> int:
+    return max(i + 1 for i, v in enumerate(XP_TABLE) if xp >= v)
+
+
+def attr_up_level(level: int) -> bool:
+    return int(level) % ATTR_UP_EVERY == 0
+
+
+def level_hp_roll(attrs: list[int], fixed: bool = False, rng: random.Random | None = None) -> tuple[int, int]:
+    """Přírůstek životů = 1k6 + ODO (nebo pevně 3 + ODO), vždy alespoň 1."""
+    k = 3 if fixed else d(6, rng)
+    return k, max(1, k + bonus(attrs[2]))
+
+
+# Duševní síla hraničáře (INT), mana kouzelníka (INT), přízeň klerika (CHAR): úroveň 1–6, sloupce stupeň 4–23
+_COLS0 = 4
+RANGER_POWER = {
+    1: [4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13],
+    2: [5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15],
+    3: [7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16],
+    4: [8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18],
+    5: [10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19],
+    6: [11, 12, 12, 13, 13, 14, 14, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21],
+}
+WIZARD_MANA = {
+    1: [2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12],
+    2: [3, 4, 5, 5, 6, 7, 8, 8, 9, 10, 11, 11, 12, 13, 14, 14, 15, 16, 17, 17],
+    3: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    4: [5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29],
+    5: [6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 23, 24, 26, 27, 29, 30, 32, 33, 35],
+    6: [7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 25, 26, 28, 30, 32, 33, 35, 37, 39, 40],
+}
+CLERIC_FAVOR = {
+    1: [5, 6, 6, 7, 7, 7, 8, 8, 9, 9, 9, 10, 10, 11, 11, 11, 12, 12, 13, 13],
+    2: [7, 8, 8, 9, 10, 10, 11, 11, 12, 13, 13, 14, 14, 15, 16, 16, 17, 17, 18, 19],
+    3: [9, 10, 10, 11, 12, 13, 14, 14, 15, 16, 17, 18, 18, 19, 20, 21, 22, 22, 23, 24],
+    4: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+    5: [12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 27, 28, 29, 30, 31, 33, 34, 35],
+    6: [14, 15, 17, 18, 19, 21, 22, 24, 25, 26, 28, 29, 31, 32, 33, 35, 36, 38, 39, 41],
+}
+# Alchymista: mana a suroviny na začátku hry podle stupně OBR 4–21
+ALCH_START_MANA = [20, 30, 40, 50, 60, 70, 75, 80, 90, 95, 100, 110, 120, 130, 145, 160, 180, 200]
+ALCH_START_RAW = [90, 110, 125, 140, 155, 165, 175, 180, 185, 190, 200, 210, 220, 230, 240, 250, 260, 270]
+
+
+def class_mana(cls: str, level: int, attrs: list[int]) -> int | None:
+    """Mana / duševní síla / přízeň podle tabulek (úroveň 1–6; výše hodnota 6. úrovně). None = podle příručky ručně."""
+    lvl = max(1, min(6, int(level)))
+    if cls == "Hraničář":
+        table, val = RANGER_POWER, attrs[3]
+    elif cls == "Kouzelník":
+        table, val = WIZARD_MANA, attrs[3]
+    elif cls == "Klerik":
+        table, val = CLERIC_FAVOR, attrs[4]
+    elif cls == "Alchymista" and int(level) == 1:
+        return ALCH_START_MANA[max(0, min(len(ALCH_START_MANA) - 1, attrs[1] - 4))]
+    else:
+        return None
+    if val < _COLS0:
+        return 0
+    return table[lvl][min(len(table[lvl]) - 1, val - _COLS0)]
+
+
+def alch_start_raw(attrs: list[int]) -> int:
+    return ALCH_START_RAW[max(0, min(len(ALCH_START_RAW) - 1, attrs[1] - 4))]
+
+
+# Únava (kapitola Užitečné informace): hranice únavy = 10 + ODO
+def fatigue_limit(attrs: list[int]) -> int:
+    return 10 + bonus(attrs[2])
+
+
+def fatigue_state(points: int, attrs: list[int]) -> tuple[str, int]:
+    lim = fatigue_limit(attrs)
+    if points > 2 * lim:
+        return "Zcela vyčerpaný", -6
+    if points > lim:
+        return "Unavený", -3
+    return "Svěží", 0
+
+
+# Pohyblivost dle rasy (+ OBR); naložení ji snižuje o čtvrtinu za každý násobek nosnosti
+RACE_MOVE = {"Barbar": 30, "Trpaslík": 20, "Člověk": 30, "Půlčík": 20, "Elf": 30, "Gnóm": 20, "Obr": 40}
+RACE_SIZE = {"Člověk": "B", "Trpaslík": "A", "Elf": "B", "Barbar": "B", "Obr": "C", "Gnóm": "A", "Půlčík": "A"}
+
+
+def movement(race: str, attrs: list[int], load_ratio: float = 0) -> int:
+    import math
+    base = RACE_MOVE.get(race, 30) + bonus(attrs[1])
+    over = max(0, math.ceil(load_ratio) - 1) if load_ratio > 1 else 0
+    return max(0, math.ceil(base * max(0.0, 1 - 0.25 * over)))

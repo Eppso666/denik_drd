@@ -30,7 +30,7 @@ def avatar(app, c: dict, size: int, radius: int, accent: str, bg: str, border: i
 
 
 async def pick_avatar(app, c: dict) -> None:
-    data = await app.pick_image()
+    data = await app.pick_image(max_side=320)
     if not data:
         return
     if c.get("avatar"):

@@ -6,11 +6,11 @@ import copy
 import flet as ft
 
 from .. import model
-from ..rules import dh, drd, drd_kouzla, drd_obory
+from ..rules import dh, dh_vybava, drd, drd_kouzla, drd_obory
 from ..rules.common import d, fmt
 from . import avatar as avatar_ui
 from . import companions as comp_ui
-from . import magic
+from . import magic, sheet
 from .kit import column
 
 
@@ -26,13 +26,19 @@ def postava(app):
     avatar = avatar_ui.avatar(app, c, 68, 18 if is_dh else 34, l.accent, l.card2 if is_dh else l.card,
                               border=2 if is_dh else 3, font_family=k.hf,
                               on_click=lambda e: avatar_ui.avatar_menu(app, c))
-    xp = f"Zkušenosti {c['xp']}" + (f" / {c['xp_next']}" if c.get("xp_next") else "")
+    nxt = model.xp_next(c)
+    if nxt and c.get("xp_next") != nxt:
+        c["xp_next"] = nxt
+    xp = f"Zkušenosti {c['xp']}" + (f" / {nxt}" if nxt else "")
+    if model.can_level_up(c):
+        xp += " · můžeš postoupit!"
     header = ft.Row([
         avatar,
         ft.Column([
             k.text(c["name"], size=21, weight=ft.FontWeight.BOLD, head=True, max_lines=2),
             k.muted(f"{c['race']} · {magic.branch_label(c)} · {c['level']}. úroveň", size=14),
-            k.muted(xp, size=12),
+            ft.Container(k.muted(xp + " ⓘ", size=12), on_click=lambda e: sheet.xp_table_dialog(app, c),
+                         tooltip="Tabulka zkušeností"),
         ], spacing=2, expand=True),
         k.button("Postup", lambda e: open_postup(app), primary=False, height=44, icon=ft.Icons.TRENDING_UP),
     ], spacing=14, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -61,22 +67,56 @@ def postava(app):
             app.toast("Mana doplněna na maximum.")
         else:
             c["hp"] = min(c["hp_max"], c["hp"] + 2)
-            app.toast("Odpočinek: +2 životy.")
+            msg = "Odpočinek: +2 životy"
+            if c.get("mana_max") and c["cls"] != "Alchymista" and c.get("mana", 0) < c["mana_max"]:
+                c["mana"] = c["mana_max"]
+                msg += ", magenergie doplněna (po vyspání)"
+            app.toast(msg + ".")
         app.save(c)
         app.refresh()
 
     if model.sync_mana(c):
         app.save(c)
     show_mana = c.get("mana_max", 0) > 0 or model.uses_mana(c)
-    gauges: list[ft.Control] = [
-        k.gauge("Životy", c["hp"], c["hp_max"], l.hp, f" · hr. smrti {c['death']}" if is_dh else ""),
-    ]
+    hp_extra = (f" · hr. smrti {c['death']}" if is_dh else
+                f" · vyřazení při {drd.knockout_limit(c['hp_max'], c['attrs'][2])}")
+    gauges: list[ft.Control] = [k.gauge("Životy", c["hp"], c["hp_max"], l.hp, hp_extra)]
+    st = model.status(c)
+    if st:
+        gauges.append(ft.Row([ft.Icon(ft.Icons.WARNING_AMBER, color=getattr(l, st[1]), size=18),
+                              k.text(st[0], size=13, weight=ft.FontWeight.W_600, color=getattr(l, st[1]))],
+                             spacing=6))
     if show_mana:
         gauges.append(k.gauge(c.get("mana_name") or "Mana", c["mana"], c["mana_max"], l.mana))
     btn_row = [k.button("Zranit", lambda e: change_hp(-1), primary=False, expand=1, height=44),
                k.button("Léčit", lambda e: change_hp(+1), primary=False, expand=1, height=44),
                k.button("Odpočinek", rest, primary=False, expand=1, height=44)]
     gauges.append(ft.Row(btn_row, spacing=8))
+    if c["cls"] == "Alchymista":
+        raw = int(c.get("raw", 0))
+
+        def adj_raw(delta):
+            def h(e):
+                c["raw"] = max(0, int(c.get("raw", 0)) + delta)
+                app.save(c)
+                app.refresh()
+            return h
+        gauges.append(k.stepper(raw, adj_raw(-5), adj_raw(+5), label="Suroviny",
+                                sub=(f"na začátku hry {c.get('raw_max', 0)} · po 5" if is_dh
+                                     else "zlaťáky v truhle · po 5")))
+    if is_dh:
+        fat = int(c.get("fatigue", 0))
+        fname, fpen = dh.fatigue_state(fat, c["attrs"])
+
+        def adj_fat(delta):
+            def h(e):
+                c["fatigue"] = max(0, int(c.get("fatigue", 0)) + delta)
+                app.save(c)
+                app.refresh()
+            return h
+        gauges.append(k.stepper(fat, adj_fat(-1), adj_fat(+1), label=f"Body únavy · {fname}",
+                                sub=f"hranice únavy {dh.fatigue_limit(c['attrs'])}" + (f" · postih {fpen}" if fpen else ""),
+                                value_color=l.bad if fpen else None))
     if show_mana:
         gauges.append(ft.Row([k.button(f"− {c.get('mana_name') or 'Mana'}", lambda e: change_mana(-1), primary=False,
                                        expand=1, height=40),
@@ -89,25 +129,50 @@ def postava(app):
         for i, a in enumerate(r.ATTRS)
     ], spacing=6)
 
+    ratio = model.load_ratio(c)
+    if is_dh:
+        info = (f"Velikost {model.size(c)} · pohyblivost {dh.movement(c['race'], c['attrs'], ratio)} sáhů/kolo"
+                f" · nosnost {c.get('capacity', 0):g} lb")
+    else:
+        obj, mech = drd.perception(c["race"], c["attrs"])
+        info = (f"Velikost {model.size(c)} · pohyblivost {drd.movement(c['race'], c['attrs'], ratio)} "
+                f"(základ {drd.base_movement(c['race'], c['attrs'])}) · postřeh objekty {obj} %, mechanismy {mech} %")
+    attrs = ft.Column([attrs, k.muted(info, size=12)], spacing=6)
+
     # boj
     fight_rows: list[ft.Control] = []
+    pen, why = model.combat_penalty(c)
     for w in model.weapons(c):
-        uc = r.weapon_uc(w, c["attrs"])
+        uc = model.uc(c, w)
         ocv = model.oc(c, w)
         stats = (f"útočnost {w.get('attack', 0)} · zranění {fmt(int(w.get('damage', 0)))} · obrana {w.get('defense', 0)}"
-                 if is_dh else f"SZ {w.get('attack', 0)} · útočnost {fmt(int(w.get('damage', 0)))} · OZ {w.get('defense', 0)}")
+                 if is_dh else f"SZ {w.get('attack', 0)} · útočnost {fmt(int(w.get('damage', 0)))} · "
+                               f"OZ {fmt(int(w.get('defense', 0)))}")
+        if model.is_racial(c, w):
+            stats += " · rodová zbraň +1 ÚČ"
+        if not is_dh and w.get("ranged") and w.get("range"):
+            m, st_, v = w["range"]
+            stats += f" · dostřel {m}/{st_}/{v} sáhů: ÚČ {uc + 1}/{uc}/{uc - 1}"
         fight_rows.append(ft.Row([
             ft.Column([k.text(w["name"], size=15, weight=ft.FontWeight.W_600),
                        k.muted(stats + (" · střelná" if w.get("ranged") else ""))], spacing=2, expand=True),
-            ft.Container(k.stat("ÚČ", uc), width=56), ft.Container(k.stat("OČ", ocv), width=56),
+            ft.Container(k.stat("ÚČ", uc), width=56),
+            ft.Container(k.stat("OČ" if is_dh else "OBRANA", ocv), width=56 if is_dh else 72),
         ], spacing=8))
+    for wtxt in model.warnings(c):
+        fight_rows.append(k.text(wtxt, size=12, color=l.warn))
+    if pen:
+        fight_rows.append(k.text(f"Postih k útoku i obraně {pen} ({', '.join(why)})", size=13,
+                                 weight=ft.FontWeight.W_600, color=l.bad))
     arm = model.armor_quality(c)
     shield = model.shield_bonus(c)
     if is_dh:
         fight_rows.append(k.muted(f"ZO {dh.base_defense(c['attrs'], arm)} (OBR + zbroj {arm}) · štít {fmt(shield)} · "
                                   f"iniciativa OBR {fmt(dh.bonus(c['attrs'][1]))} + k6"))
     else:
-        fight_rows.append(k.muted(f"Kvalita zbroje {arm} · štít {fmt(shield)} · útok ÚČ + k6+, obrana OČ + k6+"))
+        fight_rows.append(k.muted(f"OČ {model.oc_sheet(c)} (kvalita zbroje {arm} + OBR "
+                                  f"{fmt(drd.bonus(c['attrs'][1]))}) · obrana = OČ + OZ zbraně + štít {fmt(shield)} · "
+                                  f"útok ÚČ + k6+, obrana + k6+"))
 
     # dovednosti / schopnosti
     if is_dh:
@@ -139,7 +204,9 @@ def postava(app):
         class_block = [k.section("Schopnosti povolání", trail),
                        class_abilities_card(app, c["cls"], c["level"], c["attrs"], roll=True, branch=branch),
                        k.muted(note, size=12)]
-    spell_block = magic.spells_section(app, c) if magic.is_wizard(c) else []
+    spell_block = magic.spells_section(app, c)
+    if c.get("active") or model.uses_mana(c):
+        spell_block += magic.active_section(app, c)
     pets = comp_ui.companion_cards(app, c) if not is_dh else []
     plus = comp_ui.add_button(app, c)
 
@@ -156,7 +223,9 @@ def postava(app):
         k.section(sec_title, ft.TextButton("Upravit", on_click=lambda e: app.go("dovednosti"))),
         skills_block,
     ]
-    actions = [ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=l.ink, tooltip="Upravit postavu",
+    actions = [ft.IconButton(ft.Icons.PRINT_OUTLINED, icon_color=l.ink, tooltip="Tisk / export listu postavy",
+                             on_click=lambda e: sheet.export_sheet(app, c)),
+               ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=l.ink, tooltip="Upravit postavu",
                              on_click=lambda e: edit_character(app))]
     return Screen(r.NAME, [column(controls)], actions=actions)
 
@@ -189,10 +258,16 @@ def open_postup(app) -> None:
                      "attrs": list(c["attrs"]), "skill_points": c.get("skill_points", 0),
                      "xp_next": c.get("xp_next", 0), "rolled": None, "branch": c.get("branch"),
                      "dog_roll": None, "dog": None}
+    w = app.ui["lvl"]
+    w["xp_next"] = model.xp_next({**c, "level": c["level"] + 1}) or 0
     if c["system"] == "drd":
         table = drd.class_mana(c["cls"], c["level"] + 1, c["attrs"], c.get("branch"))
-        if table:
-            app.ui["lvl"]["mana_max"] = max(c["mana_max"], table)
+    else:
+        table = dh.class_mana(c["cls"], c["level"] + 1, c["attrs"])
+        w["skill_points"] = c.get("skill_points", 0) + dh.SKILL_POINTS.get(c["cls"], 3) * (c["level"] + 1)
+        w["attr_up"] = []
+    if table:
+        w["mana_max"] = max(c["mana_max"], table)
     app.go("postup")
 
 
@@ -231,11 +306,43 @@ def postup(app):
         k.stepper(w["mana_max"], adj("mana_max", -1), adj("mana_max", +1),
                   label=f"Maximum: {c.get('mana_name') or 'mana'}", sub=diff(w["mana_max"], c["mana_max"])),
     ]
+    need = model.xp_next({**c, "level": w["level"] - 1})
+    if need:
+        cost = drd.training_cost(c["cls"], w["level"]) if not is_dh else None
+        rows.append(k.muted(f"Na {w['level']}. úroveň je potřeba {need} zkušeností (máš {c['xp']})" +
+                            (f" · výcvik stojí {cost} zl" if cost else ""), size=13,
+                            color=l.ok if c["xp"] >= need else l.warn))
     if is_dh:
         rows.append(k.stepper(w["skill_points"], adj("skill_points", -1), adj("skill_points", +1),
-                              label="Dovednostní body", sub="utratíš je v Dovednostech"))
-        banner = ("Na každé třetí úrovni můžeš zvýšit dvě vlastnosti o 1. Každou dovednost lze za úroveň zlepšit "
-                  "nejvýš o jeden stupeň. Hodnoty uprav podle příručky nebo dohody s PJ.")
+                              label="Dovednostní body",
+                              sub=f"+{dh.SKILL_POINTS.get(c['cls'], 3)}× úroveň podle Tabulky dovednostních bodů"))
+
+        def roll_hp_dh(fixed):
+            def h(e):
+                kk, gain = dh.level_hp_roll(c["attrs"], fixed=fixed)
+                w["hp_max"] += gain
+                w["rolled"] = (f"{'pevně 3' if fixed else f'k6 = {kk}'} {fmt(dh.bonus(c['attrs'][2]))} ODO – +{gain}")
+                app.refresh()
+            return h
+        rows.append(ft.Row([k.button("Hodit 1k6 + ODO na životy", roll_hp_dh(False), primary=False, expand=1,
+                                     icon=ft.Icons.CASINO_OUTLINED),
+                            k.button("Průměr 3 + ODO", roll_hp_dh(True), primary=False, expand=1)], spacing=8))
+        if w.get("rolled"):
+            rows.append(k.muted(f"Přírůstek: {w['rolled']}"))
+        table = dh.class_mana(c["cls"], w["level"], c["attrs"])
+        if table is not None and c["cls"] != "Alchymista":
+            def use_dh_table(e, table=table):
+                w["mana_max"] = table
+                app.refresh()
+            rows.append(ft.Row([
+                k.muted(f"Tabulka ({c.get('mana_name') or 'mana'}): {table}" +
+                        (" – tabulka končí 6. úrovní" if w["level"] > 6 else ""), size=13, expand=True),
+                ft.TextButton("Použít", on_click=use_dh_table)]))
+        if dh.attr_up_level(w["level"]):
+            banner = (f"{w['level']}. úroveň: získáváš 2 charakterové body – zvyš dva různé atributy o 1 (vyber níže). "
+                      "Změna opravy za Odolnost přepočítá životy i hranici smrti.")
+        else:
+            banner = "Každou dovednost lze za úroveň zlepšit nejvýš o jeden stupeň. Zlepšení atributů je na každé třetí úrovni."
     else:
         cls = c["cls"] if c["cls"] in drd.HP_TABLE else "Válečník"
         _, sides, add = drd.HP_TABLE[cls]
@@ -245,8 +352,18 @@ def postup(app):
             w["hp_max"] += gain
             w["rolled"] = f"k{sides} = {kk}{fmt(add) if add else ''} {fmt(drd.bonus(c['attrs'][2]))} ODL – +{gain}"
             app.refresh()
-        rows.append(k.button(f"Hodit k{sides}{fmt(add) if add else ''} + oprava ODL na přírůstek životů", roll_hp,
-                             primary=False, icon=ft.Icons.CASINO_OUTLINED))
+
+        def fixed_hp(e):
+            gain = drd.HP_FIXED.get(cls, 1)
+            w["hp_max"] += gain
+            w["rolled"] = f"pevný přírůstek od 10. úrovně – +{gain}"
+            app.refresh()
+        if w["level"] >= drd.HP_FIXED_LEVEL:
+            rows.append(k.button(f"Přidat pevný přírůstek +{drd.HP_FIXED.get(cls, 1)} život(y) (od 10. úrovně)",
+                                 fixed_hp, primary=False, icon=ft.Icons.ADD))
+        else:
+            rows.append(k.button(f"Hodit k{sides}{fmt(add) if add else ''} + oprava ODL na přírůstek životů", roll_hp,
+                                 primary=False, icon=ft.Icons.CASINO_OUTLINED))
         if w.get("rolled"):
             rows.append(k.muted(f"Hod: {w['rolled']}"))
         table = drd.class_mana(c["cls"], w["level"], c["attrs"], w.get("branch") or c.get("branch"))
@@ -283,6 +400,25 @@ def postup(app):
                                                                     if w.get("dog") else "pes tentokrát není.")))
         banner = ("Vlastnosti se v DrD 1.6 při postupu běžně nemění. Ruční úprava je pro případy, kdy to povolí PJ "
                   "(kouzlo, lektvar, kletba). Přírůstek životů je vždy alespoň 1.")
+
+    attr_block: list[ft.Control] = []
+    if is_dh and dh.attr_up_level(w["level"]):
+        picked = w.setdefault("attr_up", [])
+
+        def toggle_attr(a):
+            if a in picked:
+                picked.remove(a)
+            elif len(picked) < 2:
+                picked.append(a)
+            else:
+                app.toast("Vyber dva různé atributy.")
+                return
+            i = dh.ATTRS.index(a)
+            w["attrs"][i] = c["attrs"][i] + (1 if a in picked else 0)
+            app.refresh()
+        attr_block = [k.section(f"Charakterové body ({len(picked)}/2)"),
+                      ft.Row([k.pill(a, a in picked, lambda e, a=a: toggle_attr(a), expand=1) for a in dh.ATTRS],
+                             spacing=6)]
 
     attr_cells = []
     for i, a in enumerate(r.ATTRS):
@@ -324,10 +460,17 @@ def postup(app):
         c["mana_max"] = w["mana_max"]
         c["mana"] = min(c["mana"], c["mana_max"])
         c["attrs"] = list(w["attrs"])
+        c["xp_next"] = model.xp_next(c) or c.get("xp_next", 0)
         if is_dh:
             c["skill_points"] = w["skill_points"]
+            d_bonus = dh.bonus(c["attrs"][2]) - dh.bonus(old_odo)
+            if d_bonus:
+                # životy = 10 + ODO + přírůstky (k6 + ODO na každé úrovni) → změna opravy působí na každou úroveň
+                c["hp_max"] = max(1, c["hp_max"] + d_bonus * c["level"])
+                c["hp"] = min(c["hp_max"], c["hp"] + max(0, d_bonus * c["level"]))
             if c["attrs"][2] != old_odo:
                 c["death"] = dh.death_threshold(c["attrs"])
+            c["capacity"] = float(dh_vybava.carry_capacity(dh.bonus(c["attrs"][0])))
         model.add_history(c, "Postup", f"{c['level']}. úroveň")
         app.save(c)
         app.ui["lvl"] = None
@@ -344,6 +487,7 @@ def postup(app):
         k.card(k.text(banner, size=14), bg=l.card2),
         k.card(ft.Column(rows, spacing=10)),
         *branch_block,
+        *attr_block,
         k.section("Vlastnosti"),
         ft.Row(attr_cells, spacing=6),
         k.button("Uložit postup", save),

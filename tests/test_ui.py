@@ -3,7 +3,7 @@ import flet as ft
 import pytest
 
 from app import model
-from app.ui import start
+from app.ui import magic, start
 from conftest import Ev, drain, walk
 
 SCREENS = ["postava", "batoh", "katalog", "kostky", "souboj", "postup", "dovednosti", "bestiar", "denik"]
@@ -114,7 +114,7 @@ def test_avatar_pick_and_remove(make_app):
     app.open_character(c["id"])
     drain(page)
 
-    async def fake_pick():
+    async def fake_pick(**kw):
         return b"\x89PNG fake"
     app.pick_image = fake_pick
     asyncio.run(avatar_ui.pick_avatar(app, c))
@@ -296,3 +296,142 @@ def test_mana_gauge_for_casters(make_app):
     drain(page)
     texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
     assert "Magenergie" not in texts
+
+
+def test_status_penalty_and_fight_mods(make_app):
+    app, page = make_app()
+    c = model.create_character("drd", "Kram", "Kudůk", "Zloděj", [10, 14, 13, 10, 12])
+    c["hp_max"], c["hp"] = 12, 2
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    assert model.status(c)[0] == "Vyřazena z boje"
+    assert model.combat_penalty(c)[0] == -1
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert any("vyřazení při 2" in t for t in texts)
+    app.ui["foe"] = {"name": "Drak", "uc": 10, "oc": 8, "hp": 80, "hp_max": 80, "dmg": 3, "size": "E", "sys": "drd"}
+    app.go("souboj")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert any("velikost A proti E −4" in t or "velikost A proti E -4" in t for t in texts)
+    assert click_everything(app, page) > 0
+
+
+def test_dh_levelup_flow(make_app):
+    from app.rules import dh
+    from app.ui import character
+    app, page = make_app()
+    c = model.create_character("dh", "Meredil", "Elf", "Kouzelník", [6, 9, 8, 18, 15])
+    assert c["mana_max"] == dh.class_mana("Kouzelník", 1, c["attrs"]) and c["xp_next"] == 550
+    c["level"] = 2
+    app.add_character(c)
+    app.open_character(c["id"])
+    character.open_postup(app)
+    w = app.ui["lvl"]
+    assert w["level"] == 3 and w["mana_max"] == dh.class_mana("Kouzelník", 3, c["attrs"])
+    assert w["skill_points"] == c.get("skill_points", 0) + 9
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert any("charakterové body" in t.lower() for t in texts)
+    assert click_everything(app, page) > 0
+
+
+def test_ranger_spells_abilities_and_active(make_app):
+    from app.rules import drd_hranicar
+    app, page = make_app()
+    c = model.create_character("drd", "Buk", "Elf", "Hraničář", [12, 13, 12, 15, 10])
+    assert drd_hranicar.ranger_spells(1, None) == []
+    assert len(drd_hranicar.ranger_spells(2, None)) == 9
+    c.update(level=8, branch="Druid", mana=40, mana_max=40)
+    names = [s["name"] for s in drd_hranicar.ranger_spells(8, "Druid")]
+    assert "Cit dřeva" in names and "Úder zloby" in names and "Dvojitý sek" not in names
+    assert "Dvojitý sek" in [s["name"] for s in drd_hranicar.ranger_spells(6, "Chodec")]
+    assert drd_hranicar.ability_slots(3, None) == 0 and drd_hranicar.ability_slots(8, "Druid") == 2
+    assert drd_hranicar.ability_grade(8, 4) == 5
+    assert "750" in drd_hranicar.ability_value("Telekineze", 5)
+    assert drd_hranicar.ability_roll(40) == "Telekineze" and drd_hranicar.ability_roll(76) == "Telepatie"
+    c["abilities_mind"] = [{"name": "Telepatie", "since": 4}]
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert any("Mimosmyslové schopnosti 1/2" in t for t in texts)
+    assert any(t.startswith("dosah 300 sáhů") for t in texts)
+    # seslání bez hodu, odečet magenergie a sledování trvání
+    s = drd_hranicar.SPELL_BY_NAME["Telepatická ochrana"]
+    assert magic.parse_duration(s["duration"]) == (1, "den")
+    assert magic.parse_duration("3 směny") == (3, "směna") and magic.parse_duration("ihned") == (0, "kolo")
+    magic.add_active(c, "Rychlost", 2, "kolo")
+    assert magic.tick(c, "kolo") == [] and magic.tick(c, "kolo") == ["Rychlost"] and c["active"] == []
+    for scr in ("postava", "kouzla"):
+        app.go(scr)
+        assert click_everything(app, page) > 0, scr
+
+
+def test_alchemist_crafting(make_app):
+    from app.rules import drd_alchymie
+    app, page = make_app()
+    c = model.create_character("drd", "Bublina", "Trpaslík", "Alchymista", [12, 15, 14, 11, 9])
+    c.update(mana=20, raw=30)
+    rk = drd_alchymie.ITEM_BY_NAME["Lektvar rudého kříže"]
+    assert drd_alchymie.craft_problem(c, rk) is None
+    assert "suroviny" in drd_alchymie.craft_problem(c, drd_alchymie.ITEM_BY_NAME["Metamorfóza"])
+    assert drd_alchymie.success_chance(15) == 74
+    assert drd_alchymie.ITEM_BY_NAME["Meč noci"]["sphere"] == 4
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    app.go("alchymie")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert "Lektvar rudého kříže" in texts
+    app.go("alchymie", alch_q="rudeho")  # hledání bez diakritiky
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert "Lektvar rudého kříže" in texts and "Rychlost" not in texts
+    magic.craft_dialog(app, c, rk)
+    page.dialogs[-1].actions[0].on_click(Ev(None))  # Vyrobit → formulář
+    page.dialogs[-1].actions[-1].on_click(Ev(None))  # potvrdit
+    drain(page)
+    assert c["mana"] == 15 and c["raw"] == 20
+    app.go("alchymie", alch_q="")
+    assert click_everything(app, page) > 0
+
+
+def test_catalog_and_spell_search(make_app):
+    from app.ui.kit import matches
+    assert matches("rude kriz", "Lektvar rudého kříže") and not matches("meč", "Dýka")
+    app, page = make_app()
+    c = model.create_character("drd", "Kram", "Člověk", "Kouzelník", [10, 12, 12, 16, 10])
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    app.go("katalog", cat_q="sekera")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert any("sekera" in t.lower() for t in texts)
+    app.go("kouzla", spell_q="blesky")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert "Modré blesky" in texts and "Dým" not in texts
+
+
+def test_sheet_xp_and_version(make_app):
+    from app import version
+    from app.ui import sheet
+    app, page = make_app()
+    c = model.create_character("drd", "Šipka <b>", "Hobit", "Hraničář", [9, 15, 11, 13, 10])
+    c.update(level=6, branch="Chodec", abilities_mind=[{"name": "Pyrokineze", "since": 4}])
+    c["notes"].append({"title": "Mapa", "text": "jeskyně", "pinned": True})
+    out = sheet.sheet_html(c)
+    assert "Šipka &lt;b&gt;" in out and "Dvojitý sek" in out and "Pyrokineze" in out and "jeskyně" in out
+    rows = sheet.xp_rows(c)
+    assert rows[1] == (2, 525, 2) and len(rows) == 16
+    dh_c = model.create_character("dh", "Gorm", "Trpaslík", "Válečník", [18, 9, 19, 10, 7])
+    assert len(sheet.xp_rows(dh_c)) == 24 and "Dovednosti" in sheet.sheet_html(dh_c)
+    assert version.news_since(None) == [] and version.news_since("0.1.0")[0][0] == version.VERSION
+    assert version.news_since(version.VERSION) == []
+    app.add_character(c)
+    app.settings["seen_version"] = "0.1.0"
+    app.go("start")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert f"Nová verze {version.VERSION}" in texts and f"Verze {version.VERSION}" in texts
+    app.open_character(c["id"])
+    drain(page)
+    sheet.xp_table_dialog(app, c)
+    assert page.dialogs
+    page.dialogs.clear()

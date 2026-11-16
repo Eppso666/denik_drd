@@ -3,7 +3,7 @@
 Mobilní deník postavy pro **Dračí Hlídku** a **Dračí doupě 1.6**. Napsáno v Pythonu (Flet 1.1).
 Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si přidá na plochu jako aplikaci.
 
-## Co aplikace umí (verze 0.1)
+## Co aplikace umí (verze 0.9)
 
 - **Výběr postavy** a **generátor postavy** (automaticky podle pravidel, nebo ručně).
 - Po výběru postavy se otevře **samostatná větev její hry**: jiný vzhled, jiné kostky, jiná pravidla, vlastní bestiář.
@@ -41,7 +41,18 @@ Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si při
 - **Souboj**: soupeř z bestiáře nebo vlastní, útok, obrana, zranění, iniciativa, průběh kol.
 - **Bestiář** zvlášť pro každou hru (DrD v klasickém zápisu: životaschopnost, útok, obrana, …), s obrázkem.
 - **Deník**: poznámky se štítky a připnutím, **obrázky** (mapy, portréty) z fotoaparátu nebo galerie.
-- Vše se ukládá **jen v zařízení**. Družina a sdílení přes Supabase přijdou v další verzi.
+- **Hraničář DrD**: kouzla od 2. úrovně, kouzla druida a chodce (PPP) od 6. úrovně, mimosmyslové schopnosti
+  (telekineze, pyrokineze, telepatie) se stupněm znalosti a tabulkami.
+- **Alchymista DrD**: výroba předmětů z PPZ (lektvary, svitky, trvalé předměty, jedy, nemagické) – odečte
+  magenergii a suroviny z truhly, hodí k% podle obratnosti a hotový předmět vloží do batohu.
+- **Aktivní účinky** s odpočtem trvání (kola, směny, hodiny, dny), **hledání** v katalogu a kouzlech.
+- **Souboj podle pravidel**: rodová zbraň +1 ÚČ, beze zbraně OZ −3, obojruční zbraně bez štítu, velikost,
+  mez vyřazení a postih za zranění, naložení, únava (DH), ÚČ střelných zbraní podle dostřelu, omezení výzbroje povolání.
+- **Postup** podle tabulek zkušeností (klepnutím na Zkušenosti se ukáže celá tabulka), přírůstek životů,
+  DH dovednostní a charakterové body, tabulky many a magenergie.
+- **Tisk listu postavy** (ikona tiskárny) – uloží HTML, které se v prohlížeči vytiskne nebo uloží jako PDF.
+- **Záloha a obnova** všech postav do souboru (úvodní obrazovka) a připomínka zálohy po 14 dnech.
+- Vše se ukládá **jen v zařízení** (proto zálohuj). Družina a sdílení přes Supabase přijdou v další verzi.
 
 ## Jak dostat aplikaci do telefonu
 
@@ -113,8 +124,10 @@ v aplikaci řešené rozumným výchozím nastavením a dají se upravit ručně
 
 - **DH – zranění v boji**: rozdíl útoku a obrany + zranění zbraně (vzorce ÚČ/OČ jsou z osobního deníku DH).
   Opakování hodu při šestce lze vypnout v Kostkách → Zbraň.
-- **DH – mana** jednotlivých povolání a přírůstek životů při postupu: zadávají se ručně.
-- **DrD – magenergie**: kouzelník podle tabulky (PPZ 1–5, PPP 6–15), ostatní povolání a zkušenosti ručně.
+- **DH – mana** podle tabulek příručky (hraničář, kouzelník, klerik – přízeň, alchymista – suroviny).
+- **DrD – magenergie** podle tabulek PPZ a PPP; alchymista od 10. úrovně destiluje magenergii sám (ručně).
+- **DrD – smrt při 0 životech** pravidla výslovně neuvádějí; deník ukazuje „V ohrožení života“.
+- **Alchymie z PPP** (pyrofor, theurg) zatím není v seznamu výroby – jen předměty z PPZ.
 - **Nosnost a naložení**: podle Tabulky nosnosti (DrD 360 mn ± 30 mn za opravu SIL, 20 mn ≈ 1 kg; DH v librách)
   a násobků nosnosti (do 4×).
 - **DrD – kvalita zbroje bez brnění je 1** (Tabulka kvality zbroje).

@@ -16,6 +16,7 @@ BUILDERS = {
     "denik": journal.denik,
     "kouzla": magic.kouzla,
     "obor": magic.obor,
+    "alchymie": magic.alchymie,
     "katalog": catalog.katalog,
 }
 

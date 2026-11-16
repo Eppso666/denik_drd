@@ -1,18 +1,32 @@
-"""DrD: kouzla kouzelníka (výběr podle pravidel, seslání) a volba oboru na 6. úrovni."""
+"""DrD: kouzla kouzelníka a hraničáře, mimosmyslové schopnosti, alchymie, aktivní kouzla a volba oboru."""
 from __future__ import annotations
+
+import re
 
 import flet as ft
 
 from .. import model
-from ..rules import drd, drd_kouzla, drd_obory
+from ..rules import drd, drd_alchymie, drd_hranicar, drd_kouzla, drd_obory
 from ..rules.common import d
-from .kit import column
+from .kit import column, matches
 
 
 # --- kouzla ------------------------------------------------------------------------------------
 
 def is_wizard(c: dict) -> bool:
     return c.get("system") == "drd" and c.get("cls") == "Kouzelník"
+
+
+def is_ranger(c: dict) -> bool:
+    return c.get("system") == "drd" and c.get("cls") == "Hraničář"
+
+
+def is_alchemist(c: dict) -> bool:
+    return c.get("system") == "drd" and c.get("cls") == "Alchymista"
+
+
+def find_spell(name: str) -> dict | None:
+    return drd_kouzla.SPELL_BY_NAME.get(name) or drd_hranicar.SPELL_BY_NAME.get(name)
 
 
 def spell_limit(c: dict) -> int:
@@ -39,6 +53,12 @@ def spell_sub(s: dict) -> str:
 
 def spells_section(app, c: dict) -> list[ft.Control]:
     """Sekce Kouzla na kartě postavy."""
+    if is_ranger(c):
+        return ranger_section(app, c)
+    if is_alchemist(c):
+        return alchemy_section(app, c)
+    if not is_wizard(c):
+        return []
     k = app.kit
     known = [drd_kouzla.SPELL_BY_NAME[n] for n in c.get("spells", []) if n in drd_kouzla.SPELL_BY_NAME]
     lim = spell_limit(c)
@@ -58,6 +78,8 @@ def kouzla(app):
     from ..core import Screen
 
     c = app.char
+    if is_ranger(c):
+        return ranger_kouzla(app)
     k = app.kit
     l = app.look
     lim = spell_limit(c)
@@ -69,6 +91,9 @@ def kouzla(app):
         pool = [s for s in pool if s["source"] == src or (src == "Moje" and s["name"] in known)]
     if src == "Moje":
         pool = [s for s in drd_kouzla.SPELLS if s["name"] in known]
+    q = app.ui.get("spell_q", "")
+    if q:
+        pool = [s for s in pool if matches(q, s["name"], s["desc"], s["school"], drd_kouzla.SCHOOLS.get(s["school"][:2]))]
 
     def toggle(s):
         def h(e):
@@ -115,6 +140,7 @@ def kouzla(app):
     filters = ["Vše", "PPZ", "PPP", "Moje"] if c["level"] >= 6 else ["Vše", "Moje"]
     controls = [
         k.card(k.muted(info, size=13)),
+        k.search(q, lambda v: app.go("kouzla", spell_q=v), "Hledat kouzlo (název, obor, účinek)…"),
         k.pills(filters, src if src in filters else "Vše", lambda v: app.go("kouzla", spell_src=v)),
         k.list_card(rows) if rows else k.empty("Nic k zobrazení."),
     ]
@@ -134,17 +160,27 @@ def _remove(app, c: dict, name: str) -> None:
 def spell_detail(app, c: dict, s: dict, known: bool) -> None:
     k = app.kit
     l = app.look
+    ranger = "from_level" in s
     rows = [("Magenergie", s["mana"]), ("Past", s["trap"] or "–"), ("Dosah", s["reach"]), ("Rozsah", s["area"]),
-            ("Vyvolání", s["cast"]), ("Trvání", s["duration"]),
-            ("Obor magie", f"{s['school']} – {drd_kouzla.SCHOOLS.get(s['school'][:2], '')}"),
-            ("Pravidla", "Pravidla pro začátečníky" if s["source"] == "PPZ" else "Pravidla pro pokročilé")]
-    note = mag_note(c, s)
+            ("Vyvolání", s["cast"]), ("Trvání", s["duration"])]
+    if ranger:
+        if s.get("freq"):
+            rows.append(("Četnost", s["freq"]))
+        rows.append(("Skupina", f"{s['school']} · od {s['from_level']}. úrovně"))
+    else:
+        rows.append(("Obor magie", f"{s['school']} – {drd_kouzla.SCHOOLS.get(s['school'][:2], '')}"))
+    rows.append(("Pravidla", "Pravidla pro začátečníky" if s["source"] == "PPZ" else "Pravidla pro pokročilé"))
+    note = None if ranger else mag_note(c, s)
     body: list[ft.Control] = [k.text(s["desc"], size=14)]
     for a, b in rows:
         body.append(ft.Row([k.muted(a, size=13, expand=True), k.text(b, size=13, weight=ft.FontWeight.W_600)],
                            spacing=8))
     if note:
         body.append(k.muted(note, size=12))
+    if s["name"] == "Zmam osobu":
+        body.append(k.muted("Tabulka zmámení (Int terče: úspěch · kontrola · magů na úroveň): " + "; ".join(
+            f"{'≤' if top < 99 else '21+'}{top if top < 99 else ''}: {p} % · {ch} · {per or '–'}"
+            for top, p, ch, per in drd_hranicar.CHARM), size=12))
     body.append(k.muted("Podrobný popis účinku je v pravidlech.", size=12, italic=True))
 
     def cast(e):
@@ -156,16 +192,24 @@ def spell_detail(app, c: dict, s: dict, known: bool) -> None:
                 app.toast("Nemáš tolik magenergie.")
                 return
             c["mana"] = c.get("mana", 0) - spent
-            chance = drd_kouzla.success_chance(c["attrs"][3])
-            r = d(100)
-            ok = r <= chance
-            model.add_history(c, f"Kouzlo {s['name']}", f"k% {r} / {chance} % – {'zdařilo' if ok else 'nezdařilo'}")
+            if ranger:
+                ok, txt = True, "sesláno"
+            else:
+                chance = drd_kouzla.success_chance(c["attrs"][3])
+                ok, txt = drd.pct_text(d(100), chance, c["level"])
+            model.add_history(c, f"Kouzlo {s['name']}", txt)
+            n = int(v.get("dur") or 0)
+            if ok and n > 0:
+                add_active(c, s["name"], n, v.get("unit") or "kolo")
             app.save(c)
             app.refresh()
-            app.toast(f"{s['name']}: k% = {r} ({chance} %) – {'kouzlo se zdařilo' if ok else 'nezdařilo se'}, "
-                      f"−{spent} magů.")
-        app.form(f"Seslat: {s['name']}", [("mana", f"Vložená magenergie ({s['mana']})", s["min"] or 1, "int")], do,
-                 save_label="Seslat a hodit k%")
+            app.toast(f"{s['name']}: {txt}, −{spent} magů.")
+        dn, du = parse_duration(s["duration"])
+        app.form(f"Seslat: {s['name']}", [
+            ("mana", f"Vložená magenergie ({s['mana']})", s["min"] or 1, "int"),
+            ("dur", "Sledovat trvání – počet (0 = ne)", dn, "int"),
+            ("unit", "Jednotka", du, "choice", UNITS),
+        ], do, save_label="Seslat" if ranger else "Seslat a hodit k%")
 
     actions: list[ft.Control] = []
     if known:
@@ -241,3 +285,311 @@ def branch_label(c: dict) -> str:
 
 
 _ = drd
+
+
+# --- aktivní kouzla a účinky s trváním ---------------------------------------------------------
+
+UNITS = ["kolo", "směna", "hodina", "den"]
+_UNIT_RE = [(r"kol", "kolo"), (r"směn", "směna"), (r"hod", "hodina"), (r"d(en|ny|ní)", "den")]
+
+
+def parse_duration(text: str) -> tuple[int, str]:
+    """„3 směny“ → (3, směna); „podle magenergie“, „ihned“, „stále“ → (0, kolo)."""
+    m = re.match(r"\s*(\d+)\s*(\S+)", text or "")
+    if not m:
+        return 0, "kolo"
+    for pat, unit in _UNIT_RE:
+        if re.match(pat, m.group(2)):
+            return int(m.group(1)), unit
+    return 0, "kolo"
+
+
+def add_active(c: dict, name: str, n: int, unit: str) -> None:
+    c.setdefault("active", []).append({"id": model.new_id(), "name": name, "left": int(n), "unit": unit})
+
+
+def tick(c: dict, unit: str) -> list[str]:
+    """Uplyne jedna jednotka času: sníží zbývající trvání účinků v této jednotce, vrátí skončené."""
+    done = []
+    for a in list(c.get("active", [])):
+        if a["unit"] == unit:
+            a["left"] -= 1
+            if a["left"] <= 0:
+                c["active"].remove(a)
+                done.append(a["name"])
+    return done
+
+
+def _unit_word(unit: str, n: int) -> str:
+    forms = {"kolo": ("kolo", "kola", "kol"), "směna": ("směna", "směny", "směn"),
+             "hodina": ("hodina", "hodiny", "hodin"), "den": ("den", "dny", "dní")}[unit]
+    return forms[0] if n == 1 else forms[1] if 2 <= n <= 4 else forms[2]
+
+
+def active_section(app, c: dict) -> list[ft.Control]:
+    """Sekce Aktivní kouzla a účinky na kartě postavy (odpočet trvání)."""
+    k = app.kit
+    act = c.get("active", [])
+
+    def add(e):
+        def save(v):
+            if not v.get("name"):
+                return
+            add_active(c, v["name"], max(1, int(v.get("n") or 1)), v.get("unit") or "kolo")
+            app.save(c)
+            app.refresh()
+        app.form("Nový účinek", [("name", "Název (kouzlo, lektvar…)", "", "text"),
+                                ("n", "Trvání", 1, "int"), ("unit", "Jednotka", "kolo", "choice", UNITS)], save,
+                 save_label="Přidat")
+
+    def remove(a):
+        def h(e):
+            if a in c.get("active", []):
+                c["active"].remove(a)
+            app.save(c)
+            app.refresh()
+        return h
+
+    def step(unit):
+        def h(e):
+            done = tick(c, unit)
+            app.save(c)
+            app.refresh()
+            app.toast("Skončilo: " + ", ".join(done) if done else f"Uplynula 1 {unit}.")
+        return h
+
+    head = k.section("Aktivní účinky", ft.TextButton("Přidat", on_click=add))
+    if not act:
+        return [head, k.empty("Žádné. Při seslání kouzla můžeš nechat odpočítávat jeho trvání.")]
+    rows = [k.row_item(a["name"], f"{a['left']} {_unit_word(a['unit'], a['left'])}",
+                       trailing=ft.IconButton(ft.Icons.CLOSE, tooltip="Ukončit", icon_color=app.look.muted,
+                                              on_click=remove(a)))
+            for a in act]
+    units = [u for u in UNITS if any(a["unit"] == u for a in act)]
+    btns = [app.kit.button(f"+1 {u}", step(u), primary=False, expand=1, height=40) for u in units]
+    return [head, k.list_card(rows), ft.Row(btns, spacing=8)]
+
+
+# --- hraničář: kouzla a mimosmyslové schopnosti ---------------------------------------------------
+
+def ranger_section(app, c: dict) -> list[ft.Control]:
+    k = app.kit
+    spells = drd_hranicar.ranger_spells(c["level"], c.get("branch"))
+    out: list[ft.Control] = []
+    if spells:
+        groups = list(dict.fromkeys(s["school"] for s in spells))
+        out += [k.section(f"Kouzla {len(spells)}", ft.TextButton("Seznam", on_click=lambda e: app.go("kouzla"))),
+                k.card(k.muted("Hraničář zná všechna kouzla svého povolání" +
+                               (f" a oboru ({', '.join(groups[1:])})" if len(groups) > 1 else "") +
+                               ". Kouzla se nehází na úspěch – stačí magenergie.", size=13),
+                       on_click=lambda e: app.go("kouzla"))]
+    elif c["level"] < 2:
+        out += [k.section("Kouzla"), k.empty("Hraničář kouzlí od 2. úrovně.")]
+    out += abilities_section(app, c)
+    return out
+
+
+def ranger_kouzla(app):
+    from ..core import Screen
+
+    c = app.char
+    k = app.kit
+    l = app.look
+    spells = drd_hranicar.ranger_spells(c["level"], c.get("branch"))
+    groups = ["Vše"] + list(dict.fromkeys(s["school"] for s in spells))
+    grp = app.ui.get("rspell_grp", "Vše")
+    if grp not in groups:
+        grp = "Vše"
+    q = app.ui.get("spell_q", "")
+    shown = [s for s in spells if (grp == "Vše" or s["school"] == grp) and
+             matches(q, s["name"], s["desc"], s["school"])]
+    rows = []
+    for s in shown:
+        locked = s["from_level"] > c["level"]
+        low = s["min"] is not None and s["min"] > int(c.get("mana", 0))
+        sub = " · ".join(x for x in (s["mana"], f"dosah {s['reach']}", f"vyvolání {s['cast']}", s.get("freq"),
+                                      f"od {s['from_level']}. úrovně" if locked else "",
+                                      "teď málo magenergie" if low and not locked else "") if x)
+        rows.append(k.row_item(s["name"], s["school"], sub=sub,
+                               badge=s["source"] if s["source"] == "PPP" else None,
+                               on_click=lambda e, s=s, lk=locked: spell_detail(app, c, s, known=not lk)))
+    info = (f"Magenergie {c.get('mana', 0)}/{c.get('mana_max', 0)} magů. Hraničář kouzlí od 2. úrovně, "
+            "kouzla druida a chodce (PPP) od 6. úrovně podle oboru.")
+    controls = [k.card(k.muted(info, size=13)),
+                k.search(q, lambda v: app.go("kouzla", spell_q=v), "Hledat kouzlo…"),
+                k.pills(groups, grp, lambda v: app.go("kouzla", rspell_grp=v)),
+                k.list_card(rows) if rows else k.empty("Nic k zobrazení.")]
+    if c.get("branch") == "Druid" and c["level"] >= 6:
+        controls.append(k.section("Pomocná lesní kouzla"))
+        controls.append(k.list_card([
+            k.row_item(n, f"{m} magů", sub=f"od {lv}. úrovně · vyvolání 2 směny · obnoví lesní kouzla")
+            for n, m, lv in drd_hranicar.DRUID_HELPERS]))
+    _ = l
+    return Screen(f"Kouzla {len(spells)}", [column(controls)])
+
+
+def abilities_section(app, c: dict) -> list[ft.Control]:
+    k = app.kit
+    slots = drd_hranicar.ability_slots(c["level"], c.get("branch"))
+    have = c.setdefault("abilities_mind", [])
+    if not slots and not have:
+        return [k.section("Mimosmyslové schopnosti"), k.empty("Od 4. úrovně (k% určí, kterou).")]
+
+    def add(e):
+        free = [a for a in drd_hranicar.ABILITIES if a not in [h["name"] for h in have]]
+
+        def roll(ev):
+            app.close_dialog()
+            r = d(100)
+            name = drd_hranicar.ability_roll(r)
+            if name in [h["name"] for h in have]:
+                app.toast(f"Padlo {r}: {name} – tu už máš, vyber si jinou.")
+                return
+            _learn(name, f"k% {r}")
+
+        def pick(name):
+            def h(ev):
+                app.close_dialog()
+                _learn(name, "volba")
+            return h
+
+        body: list[ft.Control] = [k.muted("První schopnost určuje k% (1–40 telekineze, 41–75 pyrokineze, "
+                                          "76–100 telepatie), další si druid a chodec volí.", size=13)]
+        if not have:
+            body.append(k.button("Hodit k%", roll))
+        body += [k.button(n, pick(n), primary=False) for n in free]
+        app.page.show_dialog(ft.AlertDialog(
+            title=k.text("Mimosmyslová schopnost", size=19, weight=ft.FontWeight.BOLD, head=True),
+            bgcolor=app.look.card, content=ft.Container(ft.Column(body, spacing=8, tight=True), width=340),
+            actions=[ft.TextButton("Zrušit", on_click=lambda ev: app.close_dialog())]))
+
+    def _learn(name, how):
+        have.append({"name": name, "since": c["level"]})
+        model.add_history(c, "Mimosmyslová schopnost", f"{name} ({how})")
+        app.save(c)
+        app.refresh()
+
+    def detail(h):
+        def show(e):
+            g = drd_hranicar.ability_grade(c["level"], h["since"])
+            body: list[ft.Control] = [k.text(drd_hranicar.ABILITY_DESC[h["name"]], size=14),
+                                      k.text(f"Stupeň znalosti {g}: {drd_hranicar.ability_value(h['name'], g)}",
+                                             size=14, weight=ft.FontWeight.W_600)]
+            if h["name"] == "Telepatie":
+                for act, dang, mod, who, attr in drd_hranicar.MIND_READING:
+                    body.append(k.muted(f"{act}: nebezpečnost {dang} {mod} · hází {who} · {attr}", size=12))
+            body.append(k.muted("Před použitím 1 směna soustředění, nejvýš jednou za 7 hodin. "
+                                "Únava jako u nevyčerpávajících kouzel.", size=12))
+
+            def forget(ev):
+                have.remove(h)
+                app.save(c)
+                app.close_dialog()
+                app.refresh()
+            app.page.show_dialog(ft.AlertDialog(
+                title=k.text(h["name"], size=19, weight=ft.FontWeight.BOLD, head=True), bgcolor=app.look.card,
+                content=ft.Container(ft.Column(body, spacing=6, tight=True), width=380),
+                actions=[ft.TextButton("Odebrat", on_click=forget),
+                         ft.TextButton("Zavřít", on_click=lambda ev: app.close_dialog())]))
+        return show
+
+    rows = [k.row_item(h["name"], f"stupeň {drd_hranicar.ability_grade(c['level'], h['since'])}",
+                       sub=drd_hranicar.ability_value(h["name"], drd_hranicar.ability_grade(c["level"], h["since"])),
+                       on_click=detail(h)) for h in have]
+    trail = ft.TextButton("Přidat", on_click=add) if len(have) < max(slots, 1) and len(have) < 3 else None
+    out = [k.section(f"Mimosmyslové schopnosti {len(have)}/{slots}", trail)]
+    out.append(k.list_card(rows) if rows else k.empty("Klepni na Přidat a hoď k%."))
+    return out
+
+
+# --- alchymista: výroba předmětů ------------------------------------------------------------------
+
+def alchemy_section(app, c: dict) -> list[ft.Control]:
+    k = app.kit
+    chance = drd_alchymie.success_chance(c["attrs"][1])
+    return [k.section("Alchymie", ft.TextButton("Výroba", on_click=lambda e: app.go("alchymie"))),
+            k.card(k.muted(f"Truhla: {c.get('mana', 0)} magů · {c.get('raw', 0)} zl surovin. Úspěch výroby "
+                           f"{chance} % (k% podle obratnosti). Neúspěch spotřebuje magy i suroviny.", size=13),
+                   on_click=lambda e: app.go("alchymie"))]
+
+
+def alchymie(app):
+    from ..core import Screen
+
+    c = app.char
+    k = app.kit
+    groups = drd_alchymie.GROUPS
+    grp = app.ui.get("alch_grp") or groups[0]
+    q = app.ui.get("alch_q", "")
+    if q:
+        shown = [i for i in drd_alchymie.ITEMS if matches(q, i["name"], i["desc"], i["base"], i["group"])]
+    else:
+        shown = [i for i in drd_alchymie.ITEMS if i["group"] == grp]
+    rows = []
+    for it in shown:
+        prob = drd_alchymie.craft_problem(c, it)
+        sub = " · ".join(x for x in (f"suroviny {it['raw']} zl", f"základ {it['base']}", f"výroba {it['make']}",
+                                      prob or "") if x)
+        rows.append(k.row_item(it["name"], it["mana"] if it["mags"] else "bez magů", sub=sub,
+                               badge=f"sféra {it['sphere']}" if it["sphere"] else None,
+                               on_click=lambda e, it=it: craft_dialog(app, c, it)))
+
+    def adj_raw(e):
+        def save(v):
+            c["raw"] = max(0, int(v["raw"]))
+            app.save(c)
+            app.refresh()
+        app.form("Suroviny v truhle", [("raw", "Zlaťáků surovin", c.get("raw", 0), "int")], save)
+
+    controls = [
+        k.card(ft.Row([k.muted(f"Truhla: {c.get('mana', 0)}/{c.get('mana_max', 0)} magů · "
+                               f"{c.get('raw', 0)} zl surovin", size=14, expand=True),
+                       ft.TextButton("Suroviny", on_click=adj_raw)])),
+        k.search(q, lambda v: app.go("alchymie", alch_q=v), "Hledat předmět…"),
+    ]
+    if not q:
+        controls.append(k.pills(groups, grp, lambda v: app.go("alchymie", alch_grp=v)))
+    controls.append(k.list_card(rows) if rows else k.empty("Nic k zobrazení."))
+    controls.append(k.muted("Předměty z Pravidel pro začátečníky. Výroba kratší než 6 směn vyžaduje klid "
+                            "a soustředění; „doma“ = jen v laboratoři.", size=12))
+    return Screen("Alchymie", [column(controls)])
+
+
+def craft_dialog(app, c: dict, it: dict) -> None:
+    k = app.kit
+    l = app.look
+    rows = [("Magenergie", it["mana"]), ("Suroviny", f"{it['raw']} zl"), ("Základ", it["base"]),
+            ("Trvání", it["duration"]), ("Výroba", it["make"])]
+    body: list[ft.Control] = [k.text(it["desc"], size=14)]
+    for a, b in rows:
+        body.append(ft.Row([k.muted(a, size=13, expand=True), k.text(b, size=13, weight=ft.FontWeight.W_600)]))
+    for note in (drd_alchymie.sphere_note(it), drd_alchymie.craft_problem(c, it)):
+        if note:
+            body.append(k.text(note, size=13, color=l.warn))
+    mags = it["mags"]
+
+    def make(e):
+        def do(v):
+            spent = max(0, int(v.get("mana") or 0))
+            if spent > int(c.get("mana", 0)) or it["raw"] > int(c.get("raw", 0)):
+                app.toast("Nemáš dost magenergie nebo surovin.")
+                return
+            c["mana"] = int(c.get("mana", 0)) - spent
+            c["raw"] = int(c.get("raw", 0)) - it["raw"]
+            ok, txt = drd.pct_text(d(100), drd_alchymie.success_chance(c["attrs"][1]), c["level"])
+            if ok:
+                cat = "Lektvar" if it["group"] in ("Lektvary", "Jedy") else "Ostatní"
+                c.setdefault("items", []).append(model.item(it["name"], cat, info=it["desc"]))
+            model.add_history(c, f"Výroba: {it['name']}", txt)
+            app.save(c)
+            app.refresh()
+            app.toast(f"{it['name']}: {txt}" + (" – je v batohu." if ok else "."))
+        app.close_dialog()
+        app.form(f"Vyrobit: {it['name']}", [("mana", f"Magenergie ({it['mana']})", mags or 0, "int")], do,
+                 save_label="Vyrobit a hodit k%")
+
+    app.page.show_dialog(ft.AlertDialog(
+        title=k.text(it["name"], size=19, weight=ft.FontWeight.BOLD, head=True), bgcolor=l.card,
+        content=ft.Container(ft.Column(body, spacing=6, tight=True, scroll=ft.ScrollMode.AUTO), width=380),
+        actions=[ft.TextButton("Vyrobit", on_click=make, disabled=drd_alchymie.craft_problem(c, it) is not None),
+                 ft.TextButton("Zavřít", on_click=lambda e: app.close_dialog())], scrollable=True))

@@ -145,18 +145,20 @@ def catalog(race: str | None = None) -> list[dict]:
         for name, typ, att, dmg, dfn, lb, price, grp in rows:
             out.append({"group": "Zbraně na blízko", "name": name, "category": "Zbraň", "attack": att,
                         "damage": dmg, "defense": dfn, "ranged": False, "weight": lb, "price": price,
+                        "hands": 2 if hands == "obouruční" else 1, "sil_req": SIL_REQ.get(grp),
                         "info": f"{hands} · {typ} · {_req(grp)}"})
     for name, typ, att, dmg, dfn, rng, lb, price, grp in RANGED:
         out.append({"group": "Střelné a vrhací", "name": name, "category": "Zbraň", "attack": att, "damage": dmg,
-                    "defense": dfn, "ranged": True, "weight": lb, "price": price,
+                    "defense": dfn, "ranged": True, "weight": lb, "price": price, "sil_req": SIL_REQ.get(grp),
+                    "hands": 2 if typ == "střelná" else 1,
                     "info": f"{typ} · dostřel {rng} sáhů · {_req(grp)}"})
     for name, q, weights, prices, grp in ARMORS:
         out.append({"group": "Zbroje a štíty", "name": name, "category": "Zbroj", "quality": q,
-                    "weight": weights[si], "price": f"{prices[si]} zl",
+                    "weight": weights[si], "price": f"{prices[si]} zl", "sil_req": SIL_REQ.get(grp),
                     "info": f"kvalita +{q} · {_req(grp)} · velikost {size}"})
     for name, q, lb, price, grp, note in SHIELDS:
         out.append({"group": "Zbroje a štíty", "name": name, "category": "Štít", "defense": q, "weight": lb,
-                    "price": price, "info": f"kvalita +{q} · {_req(grp)}" + (f" · {note}" if note else "")})
+                    "price": price, "sil_req": SIL_REQ.get(grp), "info": f"kvalita +{q} · {_req(grp)}" + (f" · {note}" if note else "")})
     for name, price, lb, note in GEAR:
         out.append({"group": "Výstroj", "name": name, "category": "Ostatní", "weight": lb, "price": price,
                     "info": note})

@@ -106,13 +106,18 @@ class Ev:
 
 @pytest.fixture
 def make_app():
+    pages = []
+
     def _make(web=False):
         page = FakePage(web=web)
+        pages.append(page)
         app = core.App(page, set())
         app.store = MemoryStore()
 
-        async def no_pick():  # bez grafického klienta není výběr souborů
+        async def no_pick(**kw):  # bez grafického klienta není výběr souborů
             return None
         app.pick_image = no_pick
         return app, page
-    return _make
+    yield _make
+    for page in pages:  # dokončit rozpracované ukládání, ať nezůstanou neočekávané korutiny
+        drain(page)

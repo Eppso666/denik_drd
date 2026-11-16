@@ -160,3 +160,130 @@ def test_weapon_combinations():
     assert two["weight_mn"] == 50 and two["price"] == "64 zl"  # součet dvou šavlí
     assert items["Krátký meč a dýka"]["defense"] == 3
     assert len([i for i in items.values() if "kombinace" in i["info"]]) == 6
+
+
+def _drd(race, cls, attrs, items=()):
+    from app import model
+    c = model.create_character("drd", "T", race, cls, list(attrs))
+    c["items"] = [model.item(n, cat, equipped=True, **st) for n, cat, st in items]
+    return c
+
+
+def test_rule_examples_kram_whush_sipka():
+    """Příklady z PPZ s. 68 a 72: ÚČ a OČ."""
+    from app import model
+    kram = _drd("Elf", "Válečník", [16, 11, 12, 10, 10],
+                [("Široký meč", "Zbraň", {"attack": 5, "damage": 0, "defense": 0}),
+                 ("Šupinová zbroj", "Zbroj", {"quality": 4})])
+    assert model.uc(kram, model.weapons(kram)[0]) == 7
+    assert model.oc_sheet(kram) == 4
+    whush = _drd("Elf", "Válečník", [14, 16, 12, 10, 10], [("Šupinová zbroj", "Zbroj", {"quality": 4})])
+    assert model.oc_sheet(whush) == 6
+    sipka = _drd("Elf", "Zloděj", [7, 14, 10, 10, 12], [("Široký meč", "Zbraň", {"attack": 5, "damage": 0, "defense": 0})])
+    assert model.uc(sipka, model.weapons(sipka)[0]) == 3
+
+
+def test_racial_weapon_and_unarmed():
+    from app import model
+    human = _drd("Člověk", "Válečník", [16, 11, 12, 10, 10],
+                 [("Široký meč", "Zbraň", {"attack": 5, "damage": 0, "defense": 0})])
+    assert model.is_racial(human, model.weapons(human)[0])
+    assert model.uc(human, model.weapons(human)[0]) == 8  # 7 + rodová zbraň
+    bare = _drd("Člověk", "Kouzelník", [10, 10, 10, 16, 14])
+    w = model.weapons(bare)[0]
+    assert w["defense"] == -3 and model.oc_sheet(bare) == 1 and model.oc(bare, w) == -2
+    bare["items"] = [model.item("Štít", "Štít", equipped=True, defense=1)]
+    assert model.weapons(bare)[0]["defense"] == 0  # se samotným štítem obrana zbraně 0
+    clumsy = _drd("Kroll", "Válečník", [18, 5, 18, 5, 5])
+    assert model.oc_sheet(clumsy) == 0  # OČ nikdy pod nulu
+
+
+def test_backup_roundtrip(make_app):
+    import asyncio
+    from app import model
+    from app.ui import backup
+    app, page = make_app()
+    c = model.create_character("drd", "Záloha", "Elf", "Kouzelník", [10, 12, 10, 16, 14])
+    app.add_character(c)
+    ref = asyncio.run(app.store.save_image("x1", b"PNGDATA"))
+    c["avatar"] = ref
+    raw = asyncio.run(backup.build_backup(app))
+    data = backup.parse_backup(raw)
+    assert data["chars"][0]["name"] == "Záloha" and data["images"]
+    app2, page2 = make_app()
+    n = asyncio.run(backup.restore(app2, data))
+    assert n == 1 and app2.order == [c["id"]]
+    new_ref = app2.chars[c["id"]]["avatar"]
+    assert asyncio.run(app2.store.load_image(new_ref)) == b"PNGDATA"
+    import pytest
+    with pytest.raises(ValueError):
+        backup.parse_backup(b'{"foo": 1}')
+
+
+def test_shrink_image():
+    import io
+    from PIL import Image
+    from app.core import shrink_image
+    buf = io.BytesIO()
+    Image.new("RGB", (3000, 2000), (200, 30, 30)).save(buf, "PNG")
+    out = shrink_image(buf.getvalue(), 512)
+    im = Image.open(io.BytesIO(out))
+    assert max(im.size) == 512 and len(out) < len(buf.getvalue())
+    assert shrink_image(b"not an image") == b"not an image"
+
+
+def test_fitness_and_size_tables():
+    # PPZ s. 71: kudůk ODL 13, 7 životů → mez 1, postih −1 při 2 životech; 12 životů → mez 2
+    assert drd.knockout_limit(7, 13) == 1 and drd.knockout_limit(12, 13) == 2
+    assert drd.wound_penalty(2, 7, 13) == -1 and drd.wound_penalty(4, 12, 13) == 0 and drd.wound_penalty(3, 12, 13) == -1
+    assert drd.knockout_limit(20, 20) == 1 and drd.wound_penalty(1, 20, 20) == 0
+    assert drd.size_mod("A", "E") == -4 and drd.size_mod("E", "A") == -1  # trpaslík proti drakovi
+    assert drd.ranged_size_mod("D") == 1
+
+
+def test_pct_outcomes():
+    assert drd.pct_outcome(40, 30, 1) == (False, "fatální neúspěch")
+    assert drd.pct_outcome(100, 30, 1) == (False, "fatální neúspěch")
+    assert drd.pct_outcome(35, 30, 1) == (False, None)
+    assert drd.pct_outcome(20, 52, 6) == (True, "totální úspěch")
+    assert drd.pct_outcome(20, 52, 5) == (True, None)
+
+
+def test_xp_tables_and_movement():
+    assert drd.xp_for_level("Kouzelník", 6) == 10750 and drd.training_cost("Zloděj", 5) == 12
+    assert drd.xp_for_level("Hraničář", 7) == 16350 and drd.training_cost("Kouzelník", 16) == 144
+    assert drd.level_for_xp("Válečník", 900) == 3
+    assert drd.base_movement("Barbar", [19, 9, 10, 10, 10]) == 19  # PPZ s. 83, Hrun
+    assert drd.movement("Barbar", [19, 9, 10, 10, 10], 3.5) == 5
+    assert drd.perception("Hobit", [10, 10, 10, 13, 10]) == (13, 11)  # PPZ s. 86, Fergo
+    assert drd.HP_FIXED["Válečník"] == 2 and drd.HP_FIXED["Zloděj"] == 1
+
+
+def test_dh_tables():
+    from app.rules import dh
+    assert dh.class_mana("Kouzelník", 1, [5, 5, 5, 10, 5]) == 5
+    assert dh.class_mana("Klerik", 6, [5, 5, 5, 5, 23]) == 41
+    assert dh.class_mana("Hraničář", 3, [5, 5, 5, 14, 5]) == 12
+    assert dh.class_mana("Alchymista", 1, [5, 14, 5, 5, 5]) == 100 and dh.alch_start_raw([5, 14, 5, 5, 5]) == 200
+    assert dh.xp_for_level(6) == 8500 and dh.level_for_xp(4400) == 5
+    assert dh.attr_up_level(3) and not dh.attr_up_level(4)
+    k, gain = dh.level_hp_roll([5, 5, 2, 5, 5], fixed=True)
+    assert k == 3 and gain == 1  # 3 + (−4) → nejméně 1
+    assert dh.fatigue_limit([5, 5, 18, 5, 5]) == 14 and dh.fatigue_state(15, [5, 5, 18, 5, 5]) == ("Unavený", -3)
+    assert dh.movement("Obr", [10, 10, 10, 5, 5]) == 40
+
+
+def test_gear_restrictions():
+    from app import model
+    from app.rules import drd_vybava
+    assert drd_vybava.gear_problem("Kouzelník", {"name": "Dlouhý luk", "category": "Zbraň"})
+    assert drd_vybava.gear_problem("Kouzelník", {"name": "Dýka", "category": "Zbraň"}) is None
+    assert drd_vybava.gear_problem("Zloděj", {"name": "Kroužková zbroj", "category": "Zbroj"})
+    assert drd_vybava.gear_problem("Hraničář", {"name": "Těžká kuše", "category": "Zbraň"})
+    assert drd_vybava.gear_problem("Válečník", {"name": "Obouruční meč", "category": "Zbraň"}) is None
+    c = model.create_character("drd", "W", "Člověk", "Válečník", [16, 12, 15, 10, 10])
+    c["items"] = [model.item("Obouruční meč", "Zbraň", equipped=True, attack=7, damage=1, defense=-1, hands=2),
+                  model.item("Štít", "Štít", equipped=True, defense=1)]
+    w = model.weapons(c)[0]
+    assert model.oc(c, w) == model.oc_sheet(c) - 1  # se štítem bez bonusu
+    assert any("štít" in x for x in model.warnings(c))

@@ -36,6 +36,7 @@ PARENTS: dict[str, str | None] = {
     "dovednosti": "postava",
     "kouzla": "postava",
     "obor": "postava",
+    "alchymie": "postava",
     "katalog": "batoh",
 }
 NAV = [("postava", "Postava", ft.Icons.PERSON_OUTLINE), ("batoh", "Batoh", ft.Icons.BACKPACK_OUTLINED),
@@ -310,7 +311,7 @@ class App:
             self.page.run_task(load)
         return None
 
-    async def pick_image(self) -> bytes | None:
+    async def pick_image(self, max_side: int = 1024) -> bytes | None:
         files = await self.picker.pick_files(
             dialog_title="Vyber obrázek", file_type=ft.FilePickerFileType.IMAGE, with_data=True,
             compression_quality=0 if not getattr(self.page, "web", False) else 60,
@@ -322,6 +323,28 @@ class App:
         if not data and getattr(f, "path", None):
             with open(f.path, "rb") as fh:
                 data = fh.read()
+        return shrink_image(data, max_side) if data else data
+
+
+def shrink_image(data: bytes, max_side: int = 1024, quality: int = 80) -> bytes:
+    """Zmenší obrázek na nejvýš max_side px (JPEG). Bez knihovny Pillow vrátí původní data."""
+    try:
+        import io
+
+        from PIL import Image, ImageOps
+    except Exception:  # pragma: no cover - Pillow není k dispozici
+        return data
+    try:
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(data)))
+        if max(im.size) <= max_side and len(data) <= 300_000:
+            return data
+        im.thumbnail((max_side, max_side))
+        if im.mode not in ("RGB", "L"):
+            im = im.convert("RGB")
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=quality, optimize=True)
+        return out.getvalue() if out.tell() < len(data) else data
+    except Exception:
         return data
 
 

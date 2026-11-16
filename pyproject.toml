@@ -1,10 +1,11 @@
 [project]
 name = "denik-dobrodruha"
-version = "0.1.0"
+version = "0.9.0"
 description = "Deník postavy pro Dračí Hlídku a Dračí doupě 1.6"
 requires-python = ">=3.10"
 dependencies = [
   "flet==1.1.2",
+  "pillow",
 ]
 
 [tool.flet]

@@ -97,6 +97,11 @@ ARMORS = [
 SHIELD = ("Štít", 1, (35, 50, 60), (4, 5, 6))
 NO_ARMOR_KZ = 1  # Tabulka kvality zbroje: „žádné“ = kvalita 1
 
+# Rodové zbraně (PPZ s. 68): +1 k útočnému číslu
+RODOVE = {"Hobit": "Lehká kuše", "Kudůk": "Sekera", "Trpaslík": "Válečná sekera", "Elf": "Dlouhý luk",
+          "Člověk": "Široký meč", "Barbar": "Meč bastard", "Kroll": "Těžký kyj"}
+UNARMED_OZ = -3  # Tabulka zbraní: „žádná“ – síla 0, útočnost 0, obrana −3 (se samotným štítem 0)
+
 RACE_SIZE = {"Hobit": "A", "Kudůk": "A", "Trpaslík": "A", "Elf": "B", "Člověk": "B", "Barbar": "B", "Kroll": "C"}
 
 # Výstroj: (název, váha mn, poznámka)
@@ -141,21 +146,22 @@ def catalog(race: str | None = None) -> list[dict]:
         for name, sz, ut, oz, length, mn, price, grp, note in rows:
             out.append({"group": "Zbraně na blízko", "name": name, "category": "Zbraň", "attack": sz,
                         "damage": ut, "defense": oz, "ranged": False, "weight_mn": mn, "price": price,
+                        "hands": 2 if hands == "obouruční" else 1,
                         "info": f"{hands}, {grp} · délka {length}" + (f" · {note}" if note else "")})
     one = {r[0]: r for r in MELEE_1H}
     for name, sz, ut, oz, length, parts, grp in COMBOS:
         mn = sum(one[p][5] for p in parts)
         price = _fmt_zl(sum(_price_zl(one[p][6]) for p in parts))
         out.append({"group": "Zbraně na blízko", "name": name, "category": "Zbraň", "attack": sz, "damage": ut,
-                    "defense": oz, "ranged": False, "weight_mn": mn, "price": price,
+                    "defense": oz, "ranged": False, "weight_mn": mn, "price": price, "hands": 2,
                     "info": f"kombinace dvou jednoručních zbraní ({' + '.join(parts)}), {grp} · délka {length}"})
     for name, sz, ut, rng, mn, price, note in RANGED:
         out.append({"group": "Střelné a vrhací", "name": name, "category": "Zbraň", "attack": sz, "damage": ut,
-                    "defense": RANGED_OZ, "ranged": True, "weight_mn": mn, "price": price,
-                    "info": f"střelná · dostřel {rng[0]}/{rng[1]}/{rng[2]} sáhů" + (f" · {note}" if note else "")})
+                    "defense": RANGED_OZ, "ranged": True, "weight_mn": mn, "price": price, "range": list(rng),
+                    "hands": 2, "info": f"střelná · dostřel {rng[0]}/{rng[1]}/{rng[2]} sáhů" + (f" · {note}" if note else "")})
     for name, sz, ut, rng, mn, price, grp in THROWN:
         out.append({"group": "Střelné a vrhací", "name": name, "category": "Zbraň", "attack": sz, "damage": ut,
-                    "defense": RANGED_OZ, "ranged": True, "weight_mn": mn, "price": price,
+                    "defense": RANGED_OZ, "ranged": True, "weight_mn": mn, "price": price, "range": list(rng),
                     "info": f"vrhací, {grp} · dostřel {rng[0]}/{rng[1]}/{rng[2]} sáhů"})
     for name, kz, weights, prices in ARMORS:
         out.append({"group": "Zbroje a štít", "name": name, "category": "Zbroj", "quality": kz,
@@ -181,3 +187,67 @@ def carry_capacity_mn(sil_bonus: int) -> int:
 # Tabulka naložení: (nejvýš násobek nosnosti, název, část pohyblivosti)
 LOAD_LEVELS = [(1, "Bez naložení", "1"), (2, "Mírné naložení", "¾"), (3, "Střední naložení", "½"),
                (4, "Velké naložení – postih −1 k útoku", "¼")]
+
+
+# --- omezení výzbroje podle povolání (PPZ, kapitoly povolání) ----------------------------------
+# skupiny zbraní pro boj tváří v tvář, které povolání ovládá; vrhací; střelné; zbroje; štít
+CLASS_GEAR = {
+    "Válečník": {"melee": {"lehká", "střední", "těžká"}, "thrown": {"lehká", "střední"}, "ranged": "all",
+                 "armor": "all", "shield": True},
+    "Hraničář": {"melee": {"lehká", "střední"}, "thrown": {"lehká", "střední"}, "ranged": "no_heavy",
+                 "armor": {"Vycpávaná zbroj", "Kožená zbroj", "Šupinová zbroj", "Kroužková zbroj"}, "shield": True},
+    "Alchymista": {"melee": {"lehká"}, "thrown": {"lehká"}, "ranged": "no_heavy",
+                   "armor": {"Vycpávaná zbroj", "Kožená zbroj", "Šupinová zbroj"}, "shield": False},
+    "Kouzelník": {"melee": {"lehká"}, "thrown": {"lehká"}, "ranged": "none", "armor": set(), "shield": False},
+    "Zloděj": {"melee": {"lehká", "střední"}, "thrown": {"lehká", "střední"}, "ranged": "no_heavy",
+               "armor": {"Vycpávaná zbroj", "Kožená zbroj"}, "shield": False},
+}
+CLASS_GEAR_TEXT = {
+    "Válečník": "všechny zbraně, všechna brnění i štít",
+    "Hraničář": "lehké a střední zbraně, střelné a vrhací kromě těžké kuše, brnění kromě plátové a rytířské, štít",
+    "Alchymista": "lehké zbraně a lehké vrhací, střelné kromě těžké kuše, vycpávané, kožené či šupinové brnění, bez štítu",
+    "Kouzelník": "jen lehké zbraně (i vrhací), žádné střelné zbraně, štít ani zbroj",
+    "Zloděj": "lehké a střední zbraně, vrhací, střelné kromě těžké kuše, vycpávané či kožené brnění, bez štítu",
+}
+
+
+def _weapon_kind(name: str) -> tuple[str, str] | None:
+    n = name.strip().lower()
+    for rows in (MELEE_1H, MELEE_2H):
+        for r in rows:
+            if r[0].lower() == n:
+                return "melee", r[7]
+    for r in COMBOS:
+        if r[0].lower() == n:
+            return "melee", r[6]
+    for r in RANGED:
+        if r[0].lower() == n:
+            return "ranged", "heavy" if r[0] == "Těžká kuše" else "ok"
+    for r in THROWN:
+        if r[0].lower() == n:
+            return "thrown", r[6]
+    return None
+
+
+def gear_problem(cls: str, item: dict) -> str | None:
+    """Text upozornění, když povolání předmět z pravidel neovládá; None = v pořádku nebo neznámý předmět."""
+    rules = CLASS_GEAR.get(cls)
+    if not rules:
+        return None
+    name = item.get("name", "")
+    cat = item.get("category")
+    if cat == "Zbraň":
+        kind = _weapon_kind(name)
+        if not kind:
+            return None
+        k, grp = kind
+        bad = ((k == "melee" and grp not in rules["melee"]) or (k == "thrown" and grp not in rules["thrown"])
+               or (k == "ranged" and (rules["ranged"] == "none" or (rules["ranged"] == "no_heavy" and grp == "heavy"))))
+    elif cat == "Zbroj":
+        known = {a[0] for a in ARMORS}
+        bad = name in known and rules["armor"] != "all" and name not in rules["armor"]
+    elif cat == "Štít":
+        bad = not rules["shield"]
+    else:
+        return None
+    return f"{cls} neovládá: {name} (ovládá {CLASS_GEAR_TEXT[cls]})." if bad else None
