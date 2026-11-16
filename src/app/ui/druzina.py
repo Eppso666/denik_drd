@@ -1,6 +1,7 @@
 """Obrazovka Družina – připojení ke hře, členové, hody družiny, obrázky od PJ, sdílení.
 
 Každá hra má svou Družinu ve svém vzhledu (DrD Fire, DH Ice); kampaň patří vždy k jedné hře.
+Spojení se serverem obstarává app.sync (src/app/sync.py).
 """
 from __future__ import annotations
 
@@ -15,7 +16,9 @@ from .kit import column
 SYS_NAME = {"dh": dh.NAME, "drd": drd.NAME}
 
 
-def _ago(ts: float) -> str:
+def _ago(ts: float | None) -> str:
+    if not ts:
+        return ""
     s = max(0, int(time.time() - ts))
     if s < 60:
         return "právě teď"
@@ -33,7 +36,8 @@ def status_card(app, c: dict) -> ft.Control:
     camp = sync.campaign(c)
     if camp:
         title = camp["name"]
-        sub = (f"{'PJ' if camp['role'] == 'gm' else 'Hráč'} · sezení {camp['session']} · kód {camp['code']}")
+        n = len(camp.get("members") or []) or 1
+        sub = f"{'PJ' if camp['role'] == 'gm' else 'Hráč'} · sezení {camp['session']} · {n} v družině"
     else:
         title = "Nepřipojeno ke hře"
         sub = "Připoj se ke kampani kódem od PJ, nebo ji založ."
@@ -50,8 +54,57 @@ def druzina(app):
 
     c = app.char
     camp = sync.campaign(c)
+    if camp and sync.is_remote(camp) and time.time() - camp.get("last_sync", 0) > 3 and not app.ui.get("_syncing"):
+        _sync_now(app, c, quiet=True)
     controls = _campaign_view(app, c, camp) if camp else _join_view(app, c)
     return Screen("Družina", [column(controls)])
+
+
+def _busy(app, text: str) -> None:
+    k = app.kit
+    app.page.show_dialog(ft.AlertDialog(
+        modal=True, content=ft.Row([ft.ProgressRing(width=22, height=22, color=app.look.hi),
+                                    k.text(text, size=15)], spacing=14, tight=True)))
+
+
+def _remote(app, title: str, coro_factory, ok_msg=None) -> None:
+    """Spustí operaci se serverem s točícím se kolečkem a srozumitelnou chybou."""
+    async def run():
+        _busy(app, title)
+        try:
+            await coro_factory()
+        except ValueError as ex:
+            app.close_dialog()
+            app.toast(str(ex))
+            return
+        except sync.SyncError as ex:
+            app.close_dialog()
+            _info(app, "Nepovedlo se", str(ex))
+            return
+        except OSError:
+            app.close_dialog()
+            _info(app, "Bez připojení", "Server družiny není dostupný. Zkontroluj internet a zkus to znovu.")
+            return
+        app.close_dialog()
+        app.save(app.char)
+        app.start_sync_loop()
+        app.refresh()
+        if ok_msg:
+            app.toast(ok_msg() if callable(ok_msg) else ok_msg)
+    app.run(run())
+
+
+def _sync_now(app, c: dict, quiet: bool = False) -> None:
+    async def run():
+        app.ui["_syncing"] = True
+        try:
+            changed = await app.sync.sync(c)
+            await app.after_sync(c, changed)
+        finally:
+            app.ui["_syncing"] = False
+        if not quiet:
+            app.refresh()
+    app.run(run())
 
 
 # --- nepřipojená postava -------------------------------------------------------------------------
@@ -60,6 +113,7 @@ def _join_view(app, c: dict) -> list[ft.Control]:
     k = app.kit
     l = app.look
     game = SYS_NAME[c["system"]]
+    online = sync.configured()
 
     def join(e):
         def do(v):
@@ -67,25 +121,24 @@ def _join_view(app, c: dict) -> list[ft.Control]:
             if code is None:
                 app.toast("Kód má 6 znaků, např. K7P-42Q.")
                 return
-            try:
-                sync.join_campaign(c, code)
-            except sync.NotConfigured:
-                _info(app, "Připojení zatím není zapnuté",
-                      f"Kód {code} je v pořádku, ale aplikace ještě nemá server pro družinu (Supabase). "
-                      "Až ho tvůrce aplikace nastaví, připojíš se tímto kódem a tvoje postava se objeví "
-                      "u ostatních. Zatím můžeš kampaň založit jako PJ – jen v tomto zařízení.")
+            if not online:
+                _info(app, "Připojení není zapnuté",
+                      "Aplikace nemá nastavený server pro družinu, připojit se zatím nedá.")
                 return
-            app.save(c)
-            app.refresh()
+            _remote(app, "Připojuji ke kampani…", lambda: app.sync.join(c, code),
+                    lambda: f"Jsi v kampani {c['campaign']['name']}.")
         app.form("Připojit se ke kampani", [("code", "Kód od PJ (např. K7P-42Q)", "", "text")], do,
                  save_label="Připojit")
 
     def create(e):
         def do(v):
-            sync.create_campaign(c, v.get("name", ""))
-            app.save(c)
-            app.refresh()
-            app.toast(f"Kampaň založena, kód {c['campaign']['code']}.")
+            if online:
+                _remote(app, "Zakládám kampaň…", lambda: app.sync.create(c, v.get("name", "")),
+                        lambda: f"Kampaň založena, kód {c['campaign']['code']}.")
+            else:
+                sync.create_campaign(c, v.get("name", ""))
+                app.save(c)
+                app.refresh()
         app.form(f"Nová kampaň – {game}", [("name", "Název kampaně", "", "text")], do, save_label="Založit")
 
     steps = [
@@ -112,11 +165,11 @@ def _join_view(app, c: dict) -> list[ft.Control]:
         k.card(ft.Column(step_rows, spacing=14)),
         k.section("Co uvidí ostatní", icon=ft.Icons.VISIBILITY_OUTLINED),
         k.list_card([
-            k.row_item("Ostatní hráči", trailing=None, sub="jméno, povolání, úroveň, životy a hody"),
+            k.row_item("Ostatní hráči", sub="jméno, povolání, úroveň, životy a hody"),
             k.row_item("PJ", sub="celý deník postavy – vlastnosti, batoh; může házet skrytě a sdílet mapy"),
-            k.row_item("Jen ty (a PJ)", sub="batoh a osobní poznámky v Deníku"),
+            k.row_item("Jen ty (a PJ)", sub="batoh; osobní poznámky v Deníku nevidí nikdo"),
         ]),
-        _offline_note(app),
+        _status_note(app, None, 0),
     ]
 
 
@@ -126,36 +179,70 @@ def _campaign_view(app, c: dict, camp: dict) -> list[ft.Control]:
     k = app.kit
     l = app.look
     gm = camp["role"] == "gm"
+    remote = sync.is_remote(camp)
 
     def show_code(e):
         _info(app, "Kód pro připojení",
               f"Pošli hráčům kód {camp['code']}. Zadají ho v Družině své postavy pro {SYS_NAME[camp['system']]}.",
               big=camp["code"])
 
-    def next_session(e):
-        camp["session"] += 1
-        app.save(c)
-        app.refresh()
+    def session(d):
+        def h(e):
+            new = max(1, camp["session"] + d)
+            if remote:
+                _remote(app, "Ukládám…", lambda: app.sync.set_session(c, new))
+            else:
+                camp["session"] = new
+                app.save(c)
+                app.refresh()
+        return h
 
     def toggle(key):
         def h(e):
             camp[key] = bool(e.control.value)
             app.save(c)
-            app.refresh()
+            if remote:
+                _sync_now(app, c)
+            else:
+                app.refresh()
         return h
 
     def leave(e):
         def yes(ev):
             app.close_dialog()
-            sync.leave(c)
-            app.save(c)
-            app.refresh()
-            app.toast("Kampaň opuštěna. Postava zůstala v telefonu.")
+            if remote:
+                _remote(app, "Odcházím…", lambda: app.sync.leave(c), "Kampaň opuštěna. Postava zůstala v telefonu.")
+            else:
+                sync.leave(c)
+                app.save(c)
+                app.refresh()
+        text = ("Kampaň se ukončí pro celou družinu. Všechny postavy zůstanou hráčům v telefonech." if gm and remote
+                else "Postava ti zůstane i s celým deníkem. Do kampaně se můžeš vrátit znovu kódem.")
         app.page.show_dialog(ft.AlertDialog(
-            title=k.text("Opustit kampaň?", size=19, weight=ft.FontWeight.BOLD, head=True),
-            content=k.muted("Postava ti zůstane i s celým deníkem. Do kampaně se můžeš vrátit znovu kódem.", size=14),
+            title=k.text("Ukončit kampaň?" if gm and remote else "Opustit kampaň?", size=19,
+                         weight=ft.FontWeight.BOLD, head=True),
+            content=k.muted(text, size=14),
             actions=[ft.TextButton("Zrušit", on_click=lambda ev: app.close_dialog()),
-                     ft.TextButton("Opustit", on_click=yes)]))
+                     ft.TextButton("Ukončit" if gm and remote else "Opustit", on_click=yes)]))
+
+    def publish(e):
+        name = camp["name"]
+        sync.leave(c)
+        _remote(app, "Zakládám kampaň na serveru…", lambda: app.sync.create(c, name),
+                lambda: f"Kampaň je na serveru, nový kód {c['campaign']['code']}.")
+
+    def share_image(e):
+        async def run():
+            data = await app.pick_image()
+            if not data:
+                return
+
+            def titled(v):
+                _remote(app, "Nahrávám obrázek…", lambda: app.sync.share_image(c, data, v.get("title", "")),
+                        "Obrázek sdílen s družinou.")
+            app.form("Sdílet obrázek", [("title", "Název (např. Mapa dolů – 1. patro)", "", "text")], titled,
+                     save_label="Sdílet")
+        app.run(run())
 
     head = k.card(ft.Column([
         ft.Row([k.text(camp["name"], size=21, weight=ft.FontWeight.BOLD, head=True, expand=True, max_lines=2),
@@ -169,77 +256,188 @@ def _campaign_view(app, c: dict, camp: dict) -> list[ft.Control]:
                vertical_alignment=ft.CrossAxisAlignment.CENTER),
     ], spacing=8), accent=True)
 
-    # členové: zatím jen ty (ostatní přibudou se serverem)
-    snap = sync.snapshot(c)
-    me_sub = f"{c.get('race', '')} · {c.get('cls', '')} · {c.get('level', 1)}. úroveň"
-    me = ft.Column([
-        ft.Row([k.text(f"{c['name']} (ty)", size=16, weight=ft.FontWeight.BOLD, expand=True),
-                k.badge("PJ" if gm else "ONLINE" if camp.get("online") else "OFFLINE")]),
-        k.muted(me_sub, size=13),
-        k.bar(snap["hp"] or 0, snap["hp_max"] or 1, l.hp, l.hp_dark, height=12) if snap["hp"] is not None
-        else k.muted("životy nesdílíš", size=12),
-    ], spacing=4)
-    members = k.list_card([
-        ft.Container(me, padding=ft.Padding.symmetric(vertical=2)),
-        k.row_item("Ostatní členové", sub="objeví se po připojení k serveru – každý se svým pruhem životů "
-                                          "a stavem online / offline"),
-    ])
+    controls: list[ft.Control] = [head, _status_note(app, camp, sync.pending(c))]
+    if not remote and sync.configured():
+        controls.append(k.card(ft.Column([
+            k.muted("Tahle kampaň vznikla jen v tomto telefonu. Přenes ji na server, ať se k ní můžou "
+                    "připojit ostatní (dostane nový kód).", size=13),
+            k.button("Přenést na server", publish, icon=ft.Icons.CLOUD_UPLOAD_OUTLINED, height=44),
+        ], spacing=8)))
 
-    rolls = sync.rolls(c)[:8] if camp["share_rolls"] else []
-    roll_rows = [k.row_item(f"{c['name']} · {h['label']}", h["value"], sub=_ago(h["ts"])) for h in rolls]
-    rolls_block = (k.list_card(roll_rows) if roll_rows else
-                   k.empty("Zatím žádné hody od připojení." if camp["share_rolls"] else "Sdílení hodů máš vypnuté."))
+    # --- členové
+    controls.append(k.section(f"Družina {len(camp.get('members') or []) or ''}".strip(),
+                              icon=ft.Icons.GROUPS_OUTLINED))
+    controls.append(_members(app, c, camp, gm))
 
-    pend = sync.pending(c)
-    controls: list[ft.Control] = [
-        head,
-        _offline_note(app, pend),
-        k.section(f"Družina", icon=ft.Icons.GROUPS_OUTLINED),
-        members,
-        k.section("Hody družiny", icon=ft.Icons.CASINO_OUTLINED,
-                  trailing=ft.TextButton("Kostky", on_click=lambda e: app.go("kostky"))),
-        rolls_block,
-        k.muted("Skryté hody PJ uvidí ostatní jen jako „skrytý hod – jen pro PJ“.", size=12),
-        k.section("Sdílené obrázky", icon=ft.Icons.MAP_OUTLINED),
-        k.empty("Mapy a obrázky od PJ se tu objeví a uloží se ti do Deníku." if not gm else
-                "Mapy a obrázky sdílíš z Deníku (Obrázky) – po připojení k serveru je uvidí celá družina."),
-        k.section("Sdílení", icon=ft.Icons.TUNE),
-        k.card(ft.Column([
-            ft.Switch(label="Sdílet moje hody s družinou", value=camp["share_rolls"],
-                      active_color=l.hi, on_change=toggle("share_rolls")),
-            ft.Switch(label="Sdílet moje životy s družinou", value=camp["share_hp"],
-                      active_color=l.hi, on_change=toggle("share_hp")),
-            k.muted("Batoh a poznámky vidí jen PJ. Osobní poznámky v Deníku se nesdílí.", size=12),
-        ], spacing=4)),
+    # --- hody
+    controls.append(k.section("Hody družiny", icon=ft.Icons.CASINO_OUTLINED,
+                              trailing=ft.TextButton("Kostky", on_click=lambda e: app.go("kostky"))))
+    controls.append(_feed(app, c, camp))
+    controls.append(k.muted("Skryté hody PJ vidí ostatní jen jako „Skrytý hod – jen pro PJ“.", size=12))
+
+    # --- obrázky
+    controls.append(k.section("Sdílené obrázky", icon=ft.Icons.MAP_OUTLINED,
+                              trailing=ft.TextButton("Sdílet", on_click=share_image) if gm and remote else None))
+    imgs = camp.get("images") or []
+    if imgs:
+        controls.append(k.list_card([
+            k.row_item(i.get("title") or "Obrázek", sub=("v Deníku · " if i["path"] in camp.get("saved_images", [])
+                                                         else "stahuji… · ") + _ago(sync._parse_ts(i.get("created_at"))),
+                       on_click=lambda e: app.go("denik"))
+            for i in imgs]))
+    else:
+        controls.append(k.empty("Mapy a obrázky od PJ se tu objeví a samy se uloží do Deníku." if not gm else
+                                "Klepni na Sdílet – obrázek uvidí celá družina a uloží se jim do Deníku."))
+
+    # --- sdílení
+    switches: list[ft.Control] = [
+        ft.Switch(label="Sdílet moje hody s družinou", value=camp["share_rolls"], active_color=l.hi,
+                  on_change=toggle("share_rolls")),
+        ft.Switch(label="Sdílet moje životy s družinou", value=camp["share_hp"], active_color=l.hi,
+                  on_change=toggle("share_hp")),
     ]
     if gm:
+        switches.append(ft.Switch(label="Moje hody jsou skryté (jen pro PJ)", value=camp.get("hide_rolls", False),
+                                  active_color=l.hi, on_change=toggle("hide_rolls")))
+    switches.append(k.muted("Batoh vidí jen PJ. Osobní poznámky v Deníku se nesdílí.", size=12))
+    controls += [k.section("Sdílení", icon=ft.Icons.TUNE), k.card(ft.Column(switches, spacing=4))]
+
+    if gm:
         controls += [k.section("Pro PJ", icon=ft.Icons.SHIELD_OUTLINED),
-                     k.card(k.stepper(camp["session"], lambda e: _session(app, c, -1), next_session,
-                                      label="Sezení", sub="+1 na začátku každého hraní"))]
-    controls.append(ft.Row([k.button("Opustit kampaň", leave, primary=False, icon=ft.Icons.LOGOUT, expand=1)]))
+                     k.card(k.stepper(camp["session"], session(-1), session(+1), label="Sezení",
+                                      sub="+1 na začátku každého hraní"))]
+    controls.append(ft.Row([k.button("Ukončit kampaň" if gm and remote else "Opustit kampaň", leave, primary=False,
+                                     icon=ft.Icons.LOGOUT, expand=1)]))
     return controls
 
 
-def _session(app, c: dict, d: int) -> None:
-    camp = c["campaign"]
-    camp["session"] = max(1, camp["session"] + d)
-    app.save(c)
-    app.refresh()
-
-
-def _offline_note(app, pending: int = 0) -> ft.Control:
+def _members(app, c: dict, camp: dict, gm: bool) -> ft.Control:
     k = app.kit
     l = app.look
-    if sync.configured():
-        txt = "Propojeno se serverem družiny." + (f" Odesílám {pending} změn…" if pending else "")
-        icon, color = ft.Icons.CLOUD_DONE_OUTLINED, l.ok
+    me_uid = app.sync.uid if sync.configured() else None
+    members = camp.get("members") or []
+    if not members:  # bez serveru: jen já
+        snap = sync.snapshot(c)
+        members = [{"user_id": me_uid, "role": camp["role"], "snapshot": snap, "last_seen": time.time()}]
+    rows: list[ft.Control] = []
+    for m in members:
+        s = m.get("snapshot") or {}
+        me = m.get("user_id") == me_uid or len(members) == 1
+        online = me or sync.is_online(m)
+        badge = "PJ" if m.get("role") == "gm" else ("ONLINE" if online else "OFFLINE")
+        sub = " · ".join(str(x) for x in (s.get("race"), s.get("cls"),
+                                          f"{s.get('level')}. úroveň" if s.get("level") else None) if x)
+        col: list[ft.Control] = [
+            ft.Row([ft.Icon(ft.Icons.CIRCLE, size=10, color=l.ok if online else l.muted),
+                    k.text(f"{s.get('name', '?')}{' (ty)' if me else ''}", size=16, weight=ft.FontWeight.BOLD,
+                           expand=True, max_lines=1),
+                    k.badge(badge)], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ]
+        if sub:
+            col.append(k.muted(sub, size=13))
+        if s.get("hp") is not None and s.get("hp_max"):
+            col.append(ft.Row([ft.Container(k.bar(s["hp"], s["hp_max"], l.hp, l.hp_dark, height=12), expand=True),
+                               k.text(f"{s['hp']}/{s['hp_max']}", size=13, weight=ft.FontWeight.BOLD, head=True)],
+                              spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER))
+        elif m.get("role") != "gm":
+            col.append(k.muted("životy nesdílí" if not me else "životy nesdílíš", size=12))
+        if not online and not me:
+            col.append(k.muted("offline · dorovná se po připojení", size=12))
+        click = None
+        if gm and not me and m.get("role") != "gm" and m.get("user_id"):
+            click = (lambda e, m=m: _show_sheet(app, camp, m))
+        rows.append(ft.Container(ft.Column(col, spacing=4), on_click=click, ink=click is not None))
+    if len(members) == 1 and sync.is_remote(camp):
+        rows.append(k.muted(f"Zatím jsi tu sám. Pošli ostatním kód {camp['code']}.", size=13))
+    elif not sync.is_remote(camp):
+        rows.append(k.muted("Ostatní členové se objeví, až bude kampaň na serveru.", size=13))
+    return k.list_card(rows)
+
+
+def _feed(app, c: dict, camp: dict) -> ft.Control:
+    k = app.kit
+    if sync.is_remote(camp):
+        feed = camp.get("feed") or []
+        rows = [k.row_item(f"{r['who']} · {r['label']}", r["result"],
+                           sub=_ago(sync._parse_ts(r.get("created_at"))) + (" · skrytý" if r.get("hidden") else ""))
+                for r in feed[:12]]
     else:
-        txt = ("Offline – server pro družinu ještě není nastavený. Vše funguje v tomto telefonu; "
-               + (f"{pending} hodů čeká na odeslání a " if pending else "")
-               + "hody a životy se odešlou po připojení.")
+        rows = [k.row_item(f"{c['name']} · {h['label']}", h["value"], sub=_ago(h["ts"]))
+                for h in (sync.rolls(c)[:8] if camp["share_rolls"] else [])]
+    if rows:
+        return k.list_card(rows)
+    return k.empty("Zatím žádné hody." if camp["share_rolls"] else "Sdílení hodů máš vypnuté.")
+
+
+def _show_sheet(app, camp: dict, m: dict) -> None:
+    """Pohled PJ na deník hráče (jen čtení)."""
+    k = app.kit
+    l = app.look
+
+    async def run():
+        _busy(app, "Načítám deník…")
+        try:
+            sh = await app.sync.member_sheet(camp, m["user_id"])
+        except (sync.SyncError, OSError) as ex:
+            app.close_dialog()
+            _info(app, "Nepovedlo se", str(ex) or "Bez připojení.")
+            return
+        app.close_dialog()
+        if not sh:
+            _info(app, "Deník", "Hráč zatím deník neposlal.")
+            return
+        r = drd if camp["system"] == "drd" else dh
+        body: list[ft.Control] = [
+            k.muted(" · ".join(str(x) for x in (sh.get("race"), sh.get("cls"), sh.get("branch"),
+                                                f"{sh.get('level')}. úroveň") if x), size=14),
+            k.text(f"Životy {sh.get('hp')}/{sh.get('hp_max')}" + (f" · {sh.get('mana_name') or 'Mana'} "
+                                                                    f"{sh.get('mana')}/{sh.get('mana_max')}"
+                                                                    if sh.get("mana_max") else ""), size=15,
+                   weight=ft.FontWeight.BOLD),
+        ]
+        attrs = sh.get("attrs") or []
+        if attrs:
+            body.append(ft.Row([k.stat(a, v) for a, v in zip(r.ATTRS, attrs)], spacing=6))
+        items = sh.get("items") or []
+        if items:
+            body.append(k.text("Batoh", size=15, weight=ft.FontWeight.BOLD, head=True))
+            body += [k.muted(f"• {i.get('name')}" + (f" ×{i['qty']}" if i.get("qty", 1) != 1 else "")
+                             + (" (na těle)" if i.get("equipped") else ""), size=13) for i in items[:40]]
+        money = sh.get("money") or {}
+        if money:
+            body.append(k.muted("Peníze: " + ", ".join(f"{v} {kk}" for kk, v in money.items()), size=13))
+        app.page.show_dialog(ft.AlertDialog(
+            title=k.text(sh.get("name", "Deník"), size=20, weight=ft.FontWeight.BOLD, head=True),
+            content=ft.Container(ft.Column(body, spacing=6, tight=True, scroll=ft.ScrollMode.AUTO), width=360),
+            actions=[ft.TextButton("Zavřít", on_click=lambda e: app.close_dialog())], bgcolor=l.card))
+    app.run(run())
+
+
+def _status_note(app, camp: dict | None, pending: int) -> ft.Control:
+    k = app.kit
+    l = app.look
+    btn = None
+    if camp and sync.is_remote(camp):
+        if camp.get("online"):
+            txt = f"Propojeno se serverem · aktualizováno {_ago(camp.get('last_sync'))}."
+            icon, color = ft.Icons.CLOUD_DONE_OUTLINED, l.ok
+        else:
+            txt = (camp.get("error") or "Offline.") + (f" {pending} hodů čeká na odeslání." if pending else "") + \
+                  " Hraj dál, odešle se po připojení."
+            icon, color = ft.Icons.CLOUD_OFF_OUTLINED, l.warn
+        btn = ft.IconButton(ft.Icons.REFRESH, icon_color=l.orn, tooltip="Obnovit",
+                            on_click=lambda e: _sync_now(app, app.char))
+    elif sync.configured():
+        txt = "Server družiny je připraven. Připojení potřebuje internet."
+        icon, color = ft.Icons.CLOUD_QUEUE, l.ok
+    else:
+        txt = ("Offline – server pro družinu není nastavený. Vše funguje v tomto telefonu"
+               + (f"; {pending} hodů čeká na odeslání." if pending else "."))
         icon, color = ft.Icons.CLOUD_OFF_OUTLINED, l.warn
-    return ft.Row([ft.Icon(icon, size=20, color=color), k.muted(txt, size=13, expand=True)], spacing=10,
-                  vertical_alignment=ft.CrossAxisAlignment.START)
+    row: list[ft.Control] = [ft.Icon(icon, size=20, color=color), k.muted(txt, size=13, expand=True)]
+    if btn:
+        row.append(btn)
+    return ft.Row(row, spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
 
 def _info(app, title: str, text: str, big: str | None = None) -> None:

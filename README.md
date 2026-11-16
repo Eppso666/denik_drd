@@ -148,4 +148,5 @@ Bez nich aplikace použije výchozí písmo zařízení.
 - Přihlášení je anonymní: Authentication → Sign In / Providers → **Allow anonymous sign-ins** zapnout.
 - Kdo co vidí: kampaň a členy jen členové; celý deník jen hráč a PJ; skryté hody jen PJ (ostatní vidí
   „Skrytý hod – jen pro PJ“); obrázky nahrává jen PJ. Kampaň patří k jedné hře (DrD / DH).
-- Klient v aplikaci se zapne přepínačem `CLIENT_READY` v `src/app/sync.py`.
+- Klient: `src/app/sync.py` (REST přes urllib, ve webové verzi přes fetch); synchronizace každých 6 s
+  při otevřené postavě v kampani. Testy proti falešnému serveru: `tests/test_sync.py`.

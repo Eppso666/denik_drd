@@ -1,9 +1,14 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.11.0"
+VERSION = "0.12.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.12.0": [
+        "Družina je propojená přes internet: PJ založí kampaň a pošle kód, hráči se připojí svou postavou.",
+        "Členové s životy a stavem online, živé hody družiny (skryté hody PJ), mapy od PJ se uloží do Deníku, "
+        "PJ vidí deníky hráčů. Bez internetu se hraje dál a vše se odešle po připojení.",
+    ],
     "0.11.0": [
         "Družina: na kartě postavy se připojíš ke kampani kódem od PJ, nebo ji jako PJ založíš. "
         "Propojení s ostatními hráči se zapne, až bude nastavený server.",

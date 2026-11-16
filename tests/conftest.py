@@ -121,3 +121,14 @@ def make_app():
     yield _make
     for page in pages:  # dokončit rozpracované ukládání, ať nezůstanou neočekávané korutiny
         drain(page)
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch):
+    """Testy nikdy nesahají na skutečný server Supabase."""
+    from app import sync
+
+    async def offline(method, url, headers, body):
+        raise OSError("offline v testech")
+    monkeypatch.setattr(sync, "TRANSPORT", offline)
+    monkeypatch.setattr(sync, "SYNC_INTERVAL", None)

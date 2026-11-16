@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import flet as ft
 
-from . import model, theme
+from . import model, sync, theme
 from .storage import Storage
 from .ui.kit import Kit
 
@@ -63,6 +64,8 @@ class App:
         self._rendered: str | None = None
         self.images: dict[str, bytes] = {}
         self._loading_images: set[str] = set()
+        self._sync_client = None
+        self._sync_loop = False
 
     # --- stav ----------------------------------------------------------------
     @property
@@ -96,6 +99,63 @@ class App:
         self.bestiary["dh"] = await self.store.get_json("bestiary.dh", [])
         self.bestiary["drd"] = await self.store.get_json("bestiary.drd", [])
         self.settings.update(await self.store.get_json("settings", {}))
+        if any(sync.is_remote(sync.campaign(c)) for c in self.chars.values()):
+            self.start_sync_loop()
+
+    # --- družina (Supabase) --------------------------------------------------
+    @property
+    def sync(self) -> "sync.Client":
+        if self._sync_client is None:
+            self._sync_client = sync.Client(self.settings, lambda: self.save(settings=True))
+        return self._sync_client
+
+    def start_sync_loop(self) -> None:
+        """Na pozadí každých pár sekund odešle moje hody a stáhne novinky družiny (jen u postavy v kampani)."""
+        if self._sync_loop or sync.SYNC_INTERVAL is None or not sync.configured():
+            return
+        self._sync_loop = True
+
+        async def loop():
+            while True:
+                await asyncio.sleep(sync.SYNC_INTERVAL)
+                c = self.char
+                if c and sync.is_remote(sync.campaign(c)):
+                    try:
+                        changed = await self.sync.sync(c)
+                        await self.after_sync(c, changed)
+                    except Exception:  # pragma: no cover - síť nesmí shodit aplikaci
+                        pass
+        self.page.run_task(loop)
+
+    async def after_sync(self, c: dict, changed: bool) -> None:
+        """Uloží stav, stáhne nové obrázky od PJ do Deníku a překreslí obrazovku Družina."""
+        camp = sync.campaign(c)
+        if not camp:
+            return
+        if camp.get("gone"):
+            sync.leave(c)
+            self.save(c)
+            self.toast("Kampaň byla ukončena. Postava ti zůstala.")
+            if self.screen == "druzina":
+                self.refresh()
+            return
+        saved = camp.setdefault("saved_images", [])
+        for img in camp.get("images") or []:
+            if img["path"] in saved:
+                continue
+            try:
+                data = await self.sync.download_image(img["path"])
+            except Exception:
+                break
+            ref = await self.store.save_image(model.new_id(), data)
+            self.images[ref] = data
+            c["images"].insert(0, {"id": model.new_id(), "ref": ref, "title": img.get("title") or "Od PJ",
+                                   "category": "Mapa", "ts": time.time()})
+            saved.append(img["path"])
+            changed = True
+        self.save(c)
+        if changed and self.screen == "druzina":
+            self.refresh()
 
     def save(self, c: dict | None = None, bestiary: str | None = None, settings: bool = False) -> None:
         async def _save():
