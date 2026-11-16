@@ -1,9 +1,14 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.10.0": [
+        "Nový vzhled podle grafického návrhu: Dračí doupě ve stylu Fire Fantasy (tmavý kámen, bronz, zlato, "
+        "rudá záře, pergamen), Dračí Hlídka ve stylu Ice Fantasy (temně modrá, stříbro, ledová záře).",
+        "Kovové rámečky, ilustrace v záhlaví postavy, nová horní lišta a spodní navigace, písmo Cinzel.",
+    ],
     "0.9.0": [
         "Záloha a obnova všech postav do souboru (úvodní obrazovka) a zmenšování obrázků.",
         "Souboj podle pravidel: rasová zbraň +1, beze zbraně OZ −3, velikost, mez vyřazení, postihy za zranění, "

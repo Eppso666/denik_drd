@@ -164,28 +164,21 @@ class App:
         elif is_char_root:
             leading = ft.IconButton(icon=ft.Icons.PEOPLE_OUTLINE, icon_color=look.ink, tooltip="Výběr postavy",
                                     on_click=lambda e: self.back())
-        appbar = ft.AppBar(
-            leading=leading, title=k.title(sc.title, size=21), bgcolor=look.bg, color=look.ink,
-            actions=sc.actions or [], center_title=False,
-        )
-        nav = None
-        if is_char_root:
-            idx = [n[0] for n in NAV].index(self.screen) if self.screen in [n[0] for n in NAV] else 0
-            nav = ft.NavigationBar(
-                destinations=[ft.NavigationBarDestination(icon=ic, label=lbl) for _, lbl, ic in NAV],
-                selected_index=idx, bgcolor=look.nav_bg,
-                indicator_color=look.accent if look.dark else look.card,
-                on_change=lambda e: self.go(NAV[e.control.selected_index][0]),
-            )
+        header = self._header(look, sc, leading)
+        nav = self._nav(look) if is_char_root else None
         # Na širokém displeji (PC) drží aplikace šířku telefonu/tabletu a je vycentrovaná;
         # na telefonu je MAX_WIDTH větší než displej, takže se nic nemění.
+        body = [header, ft.Container(ft.Column(sc.controls, spacing=0, expand=True), expand=True)]
         frame = ft.Pagelet(
-            content=ft.Column(sc.controls, spacing=0, expand=True),
-            appbar=appbar, navigation_bar=nav, floating_action_button=sc.fab,
-            bgcolor=look.bg, expand=True, max_width=MAX_WIDTH,
+            content=ft.Container(ft.Column(body, spacing=0, expand=True), expand=True,
+                                 gradient=ft.RadialGradient(center=ft.Alignment.TOP_CENTER, radius=1.6,
+                                                            colors=[look.bg2, look.bg])),
+            bottom_appbar=ft.BottomAppBar(content=nav, padding=ft.Padding.all(0), height=78, bgcolor=look.bg,
+                                          elevation=0) if nav is not None else None,
+            floating_action_button=sc.fab, bgcolor=look.bg, expand=True, max_width=MAX_WIDTH,
         )
         view = ft.View(
-            route="/" + self.screen, controls=[frame], bgcolor=look.border if not look.dark else "#0b0a0d",
+            route="/" + self.screen, controls=[frame], bgcolor="#07060a",
             padding=0, spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         )
         views: list[ft.View] = []
@@ -197,6 +190,53 @@ class App:
         self._keep_scroll(sc)
         self.page.update()
         self._restore_scroll()
+
+    def _header(self, look, sc: "Screen", leading) -> ft.Control:
+        """Horní lišta podle návrhu: přechod, kovová linka, nadpis s ornamenty a kosočtverec uprostřed."""
+        k = self.kit
+        orn = lambda: ft.Container(width=18, height=1, bgcolor=look.frame)  # noqa: E731
+        title = ft.Row([orn(), k.text(sc.title, size=20, weight=ft.FontWeight.BOLD, head=True, max_lines=1),
+                        orn()], spacing=10, alignment=ft.MainAxisAlignment.CENTER, tight=True)
+        actions = list(sc.actions or [])
+        left = leading or ft.Container(width=40)
+        while len(actions) < 1:
+            actions.append(ft.Container(width=40))
+        bar = ft.Container(
+            content=ft.Row([left, ft.Container(title, expand=True, alignment=ft.Alignment.CENTER), *actions],
+                           spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            height=60, padding=ft.Padding.symmetric(horizontal=6),
+            gradient=ft.LinearGradient(begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
+                                       colors=[look.bg2, look.bg]),
+            border=ft.Border.only(bottom=ft.BorderSide(1, look.frame)),
+        )
+        gem = ft.Container(width=9, height=9, bgcolor=look.orn, rotate=ft.Rotate(0.785),
+                           border=ft.Border.all(1, look.bg))
+        return ft.Stack([bar, ft.Row([gem], alignment=ft.MainAxisAlignment.CENTER, left=0, right=0, bottom=-4)],
+                        clip_behavior=ft.ClipBehavior.NONE, height=60)
+
+    def _nav(self, look) -> ft.Control:
+        """Spodní navigace podle návrhu: aktivní položka svítí akcentem."""
+        items = []
+        for key, label, icon in NAV:
+            on = key == self.screen
+            fg = look.on_accent if on else look.ink
+            items.append(ft.Container(
+                content=ft.Column([ft.Icon(icon, size=24, color=look.on_accent if on else look.orn),
+                                   ft.Text(label, size=12, weight=ft.FontWeight.BOLD, color=fg, no_wrap=True)],
+                                  spacing=3, horizontal_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+                expand=1, padding=ft.Padding.symmetric(vertical=6), border_radius=ft.BorderRadius.all(look.radius),
+                gradient=ft.RadialGradient(colors=[look.accent2, look.accent], radius=1.0) if on else None,
+                border=ft.Border.all(1, look.orn if on else "#00000000"),
+                shadow=[ft.BoxShadow(blur_radius=14, color=look.glow)] if on else None,
+                on_click=lambda e, key=key: self.go(key), ink=True, tooltip=label,
+                data=key,
+            ))
+        return ft.Container(
+            content=ft.Row(items, spacing=4), padding=ft.Padding.only(left=8, right=8, top=8, bottom=10),
+            gradient=ft.LinearGradient(begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
+                                       colors=[look.bg2, look.bg]),
+            border=ft.Border.only(top=ft.BorderSide(1, look.frame)),
+        )
 
     def _main_column(self, sc: "Screen") -> ft.Column | None:
         for ctrl in sc.controls:
@@ -272,20 +312,20 @@ class App:
         for f in fields:
             key, label, value, kind = f[0], f[1], f[2], f[3]
             if kind == "bool":
-                ctrl = ft.Switch(label=label, value=bool(value), active_color=look.accent)
+                ctrl = ft.Switch(label=label, value=bool(value), active_color=look.hi)
             elif kind == "choice":
                 opts = f[4]
                 ctrl = ft.Dropdown(label=label, value=str(value) if value is not None else None,
                                    options=[ft.DropdownOption(key=o, text=o) for o in opts], expand=True,
-                                   border_color=look.border, focused_border_color=look.accent, color=look.ink)
+                                   border_color=look.frame, focused_border_color=look.hi, color=look.ink)
             else:
                 ctrl = ft.TextField(
                     label=label, value="" if value is None else str(value),
                     multiline=kind == "long", min_lines=3 if kind == "long" else None,
                     max_lines=8 if kind == "long" else 1,
                     keyboard_type=ft.KeyboardType.NUMBER if kind in ("int", "float") else ft.KeyboardType.TEXT,
-                    border_color=look.border, focused_border_color=look.accent, color=look.ink,
-                    cursor_color=look.accent,
+                    border_color=look.frame, focused_border_color=look.hi, color=look.ink,
+                    cursor_color=look.hi,
                 )
             controls[key] = ctrl
             body.append(ctrl)

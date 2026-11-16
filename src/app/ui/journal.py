@@ -52,8 +52,8 @@ def bestiar(app):
         app.refresh()
 
     search = ft.TextField(hint_text="Hledat bytost…", value=app.ui.get("beast_q", ""), on_submit=on_search,
-                          on_blur=on_search, prefix_icon=ft.Icons.SEARCH, border_color=l.border,
-                          focused_border_color=l.accent, color=l.ink, dense=True)
+                          on_blur=on_search, prefix_icon=ft.Icons.SEARCH, border_color=l.frame,
+                          focused_border_color=l.hi, color=l.ink, dense=True)
 
     cards: list[ft.Control] = []
     for b in shown:
@@ -157,7 +157,7 @@ def denik(app):
     if tab == "Poznámky":
         notes = sorted(c["notes"], key=lambda n: (not n.get("pinned"), -n.get("ts", 0)))
         for n in notes:
-            tag_color = {"Úkol": l.accent, "Postava": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
+            tag_color = {"Úkol": l.hi, "Postava": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
             body.append(k.card(ft.Column([
                 ft.Row([k.badge((n.get("tag") or "Ostatní").upper() + (" · PŘIPNUTO" if n.get("pinned") else ""),
                                 color=tag_color, fg=l.on_accent if l.dark else l.card),

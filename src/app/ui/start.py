@@ -19,7 +19,7 @@ def start(app):
 
     k = app.kit
     l = app.look
-    controls: list[ft.Control] = [k.muted("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.accent)]
+    controls: list[ft.Control] = [k.muted("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.hi)]
     seen = app.settings.get("seen_version")
     if seen != VERSION:
         news = version.news_since(seen) if app.order else []
@@ -39,7 +39,7 @@ def start(app):
 
     if not app.order:
         controls.append(k.card(ft.Column([
-            ft.Icon(ft.Icons.CASINO_OUTLINED, size=56, color=l.accent),
+            ft.Icon(ft.Icons.CASINO_OUTLINED, size=56, color=l.hi),
             k.text("Zatím žádná postava", size=20, weight=ft.FontWeight.BOLD, head=True),
             k.muted("Vytvoř si první postavu. Vybereš, jestli hraješ Dračí Hlídku, nebo Dračí doupě 1.6, "
                     "a aplikace se přizpůsobí pravidlům i vzhledem.", size=14, align=ft.TextAlign.CENTER),
@@ -163,7 +163,7 @@ def generator(app):
         u["gen_name"] = e.control.value
 
     name = ft.TextField(label="Jméno postavy", value=u.get("gen_name", ""), on_change=on_name,
-                        border_color=l.border, focused_border_color=l.accent, color=l.ink, cursor_color=l.accent)
+                        border_color=l.frame, focused_border_color=l.hi, color=l.ink, cursor_color=l.hi)
 
     rows: list[ft.Control] = []
     left = 0
@@ -201,7 +201,7 @@ def generator(app):
                 "Vlastnosti hozeny podle tabulek rasy a povolání.")
 
     attrs_card = k.card(ft.Column([
-        ft.Row([k.text("Vlastnosti", size=17, weight=ft.FontWeight.BOLD, head=True, color=l.accent),
+        ft.Row([k.text("Vlastnosti", size=17, weight=ft.FontWeight.BOLD, head=True, color=l.hi),
                 k.pills(["Automaticky", "Ručně"], "Ručně" if manual else "Automaticky", set_mode, wrap=False)],
                alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
         k.muted(hint),
@@ -236,7 +236,7 @@ def generator(app):
                 border=ft.Border.all(1, l.border), border_radius=ft.BorderRadius.all(l.radius),
                 padding=ft.Padding.symmetric(vertical=8, horizontal=4)))
         class_card = [k.card(ft.Column([
-            ft.Row([k.text(cls, size=21, weight=ft.FontWeight.BOLD, head=True, color=l.accent),
+            ft.Row([k.text(cls, size=21, weight=ft.FontWeight.BOLD, head=True, color=l.hi),
                     k.muted(u["gen_race"], size=13, weight=ft.FontWeight.BOLD)],
                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             k.muted(drd.CLASS_DESC[cls], size=13),

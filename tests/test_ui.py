@@ -96,7 +96,7 @@ def test_generator_both_systems_manual_and_auto(make_app):
     app.ui.update({"gen_sys": "drd", "gen_mode": "auto", "gen_name": "Elwin"})
     start.reset_gen(app)
     app.go("generator")
-    buttons = [c for c, a, h in handlers(page.views) if isinstance(c, ft.FilledButton)]
+    buttons = [c for c, a, h in handlers(page.views) if getattr(c, "data", None) == "primary"]
     buttons[-1].on_click(Ev(buttons[-1]))
     drain(page)
     # po vytvoření se aplikace vrátí na seznam postav
@@ -226,13 +226,13 @@ def test_postup_to_6_requires_branch(make_app):
     assert app.ui["lvl"]["level"] == 6
     texts = [getattr(x, "value", "") for v in page.views for x in walk(v)]
     assert "Lupič" in texts and "Sicco" in texts
-    save_btn = [x for v in page.views for x in walk(v) if isinstance(x, ft.FilledButton)][-1]
+    save_btn = [x for v in page.views for x in walk(v) if getattr(x, "data", None) == "primary"][-1]
     save_btn.on_click(Ev(save_btn))
     drain(page)
     assert c["level"] == 5 and not c.get("branch")  # bez volby oboru se neuloží
     app.ui["lvl"]["branch"] = "Lupič"
     app.go("postup")
-    save_btn = [x for v in page.views for x in walk(v) if isinstance(x, ft.FilledButton)][-1]
+    save_btn = [x for v in page.views for x in walk(v) if getattr(x, "data", None) == "primary"][-1]
     save_btn.on_click(Ev(save_btn))
     drain(page)
     assert c["level"] == 6 and c["branch"] == "Lupič"

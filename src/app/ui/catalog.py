@@ -148,9 +148,9 @@ def item_dialog(app, it: dict) -> None:
     l = app.look
     cost = price_md(it.get("price", ""))
     qty_field = ft.TextField(label="Počet kusů", value="1", keyboard_type=ft.KeyboardType.NUMBER,
-                             border_color=l.border, focused_border_color=l.accent, color=l.ink, width=140)
+                             border_color=l.frame, focused_border_color=l.hi, color=l.ink, width=140)
     equip = ft.Switch(label="Vybavit na tělo (počítá se do boje)",
-                      value=it["category"] in ("Zbraň", "Zbroj", "Štít"), active_color=l.accent)
+                      value=it["category"] in ("Zbraň", "Zbroj", "Štít"), active_color=l.hi)
 
     def qty() -> int:
         try:

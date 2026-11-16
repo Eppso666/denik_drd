@@ -3,7 +3,7 @@
 Mobilní deník postavy pro **Dračí Hlídku** a **Dračí doupě 1.6**. Napsáno v Pythonu (Flet 1.1).
 Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si přidá na plochu jako aplikaci.
 
-## Co aplikace umí (verze 0.9)
+## Co aplikace umí (verze 0.10)
 
 - **Výběr postavy** a **generátor postavy** (automaticky podle pravidel, nebo ručně).
 - Po výběru postavy se otevře **samostatná větev její hry**: jiný vzhled, jiné kostky, jiná pravidla, vlastní bestiář.

@@ -119,7 +119,7 @@ def kouzla(app):
         note = mag_note(c, s)
         sub = spell_sub(s) + (f" · {note}" if note else "") + (" · zatím nemáš dost magenergie" if too_much else "")
         icon = ft.Icons.CHECK_CIRCLE if has else (ft.Icons.BLOCK if too_much else ft.Icons.ADD_CIRCLE_OUTLINE)
-        color = l.accent if has else l.muted
+        color = l.hi if has else l.muted
         rows.append(ft.Container(ft.Row([
             ft.Column([
                 ft.Row([k.text(s["name"], size=15, weight=ft.FontWeight.W_600, color=l.muted if too_much else None),
@@ -236,7 +236,7 @@ def branch_cards(app, c: dict, selected: str | None, on_pick) -> list[ft.Control
         out.append(k.card(ft.Column([
             ft.Row([k.text(name, size=18, weight=ft.FontWeight.BOLD, head=True, expand=True),
                     ft.Icon(ft.Icons.CHECK_CIRCLE if sel else ft.Icons.RADIO_BUTTON_UNCHECKED,
-                            color=l.accent if sel else l.muted)]),
+                            color=l.hi if sel else l.muted)]),
             k.muted(desc, size=13),
             ft.Column(rows, spacing=2),
         ], spacing=6), accent=sel, on_click=lambda e, n=name: on_pick(n)))

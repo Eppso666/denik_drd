@@ -25,7 +25,7 @@ def add_button(app, c: dict) -> ft.Control | None:
     if not kind:
         return None
     l = app.look
-    return ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color=l.accent, icon_size=22,
+    return ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color=l.hi, icon_size=22,
                          tooltip="Přidat přítele" if kind == "přítel" else "Přidat psa",
                          on_click=lambda e: open_picker(app, c))
 

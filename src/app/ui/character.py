@@ -23,8 +23,7 @@ def postava(app):
     r = model.rules(c["system"])
     is_dh = c["system"] == "dh"
 
-    avatar = avatar_ui.avatar(app, c, 68, 18 if is_dh else 34, l.accent, l.card2 if is_dh else l.card,
-                              border=2 if is_dh else 3, font_family=k.hf,
+    avatar = avatar_ui.avatar(app, c, 76, 38, l.orn, l.card2, border=3, font_family=k.hf,
                               on_click=lambda e: avatar_ui.avatar_menu(app, c))
     nxt = model.xp_next(c)
     if nxt and c.get("xp_next") != nxt:
@@ -125,7 +124,7 @@ def postava(app):
 
     attrs = ft.Row([
         k.stat(a, c["attrs"][i], fmt(r.bonus(c["attrs"][i])),
-               sub_color=l.accent if r.bonus(c["attrs"][i]) > 0 else l.muted)
+               sub_color=(l.accent2 if is_dh else l.orn) if r.bonus(c["attrs"][i]) > 0 else l.muted)
         for i, a in enumerate(r.ATTRS)
     ], spacing=6)
 
@@ -154,23 +153,24 @@ def postava(app):
             m, st_, v = w["range"]
             stats += f" · dostřel {m}/{st_}/{v} sáhů: ÚČ {uc + 1}/{uc}/{uc - 1}"
         fight_rows.append(ft.Row([
-            ft.Column([k.text(w["name"], size=15, weight=ft.FontWeight.W_600),
-                       k.muted(stats + (" · střelná" if w.get("ranged") else ""))], spacing=2, expand=True),
+            ft.Column([k.text(w["name"], size=18, weight=ft.FontWeight.BOLD, head=True, color=l.ptext),
+                       k.muted(stats + (" · střelná" if w.get("ranged") else ""), size=14, color=l.pmuted)],
+                      spacing=2, expand=True),
             ft.Container(k.stat("ÚČ", uc), width=56),
             ft.Container(k.stat("OČ" if is_dh else "OBRANA", ocv), width=56 if is_dh else 72),
         ], spacing=8))
     for wtxt in model.warnings(c):
-        fight_rows.append(k.text(wtxt, size=12, color=l.warn))
+        fight_rows.append(k.text(wtxt, size=13, color=l.pwarn, weight=ft.FontWeight.BOLD))
     if pen:
         fight_rows.append(k.text(f"Postih k útoku i obraně {pen} ({', '.join(why)})", size=13,
-                                 weight=ft.FontWeight.W_600, color=l.bad))
+                                 weight=ft.FontWeight.BOLD, color=l.pbad))
     arm = model.armor_quality(c)
     shield = model.shield_bonus(c)
     if is_dh:
-        fight_rows.append(k.muted(f"ZO {dh.base_defense(c['attrs'], arm)} (OBR + zbroj {arm}) · štít {fmt(shield)} · "
+        fight_rows.append(k.muted(color=l.pmuted, value=f"ZO {dh.base_defense(c['attrs'], arm)} (OBR + zbroj {arm}) · štít {fmt(shield)} · "
                                   f"iniciativa OBR {fmt(dh.bonus(c['attrs'][1]))} + k6"))
     else:
-        fight_rows.append(k.muted(f"OČ {model.oc_sheet(c)} (kvalita zbroje {arm} + OBR "
+        fight_rows.append(k.muted(color=l.pmuted, value=f"OČ {model.oc_sheet(c)} (kvalita zbroje {arm} + OBR "
                                   f"{fmt(drd.bonus(c['attrs'][1]))}) · obrana = OČ + OZ zbraně + štít {fmt(shield)} · "
                                   f"útok ÚČ + k6+, obrana + k6+"))
 
@@ -211,23 +211,38 @@ def postava(app):
     plus = comp_ui.add_button(app, c)
 
     controls = [
-        header,
         k.card(ft.Column(gauges, spacing=10)),
-        k.section("Vlastnosti", plus),
+        k.section("Vlastnosti", plus, icon=ft.Icons.AUTO_AWESOME),
         attrs,
         *pets,
-        k.section("Boj", ft.TextButton("Souboj", on_click=lambda e: app.go("souboj"))),
-        k.card(ft.Column(fight_rows, spacing=10)),
+        k.section("Boj", ft.TextButton("Souboj", on_click=lambda e: app.go("souboj")), icon=ft.Icons.SPORTS_KABADDI),
+        k.parch(ft.Column(fight_rows, spacing=10)),
         *class_block,
         *spell_block,
-        k.section(sec_title, ft.TextButton("Upravit", on_click=lambda e: app.go("dovednosti"))),
+        k.section(sec_title, ft.TextButton("Upravit", on_click=lambda e: app.go("dovednosti")),
+                  icon=ft.Icons.HISTORY_EDU),
         skills_block,
     ]
     actions = [ft.IconButton(ft.Icons.PRINT_OUTLINED, icon_color=l.ink, tooltip="Tisk / export listu postavy",
                              on_click=lambda e: sheet.export_sheet(app, c)),
                ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color=l.ink, tooltip="Upravit postavu",
                              on_click=lambda e: edit_character(app))]
-    return Screen(r.NAME, [column(controls)], actions=actions)
+    body = [banner(app, header), *[ft.Container(x, padding=ft.Padding.symmetric(horizontal=16)) for x in controls]]
+    return Screen(r.NAME, [column(body, padding=0)], actions=actions)
+
+
+def banner(app, header: ft.Control) -> ft.Control:
+    """Ilustrace v záhlaví postavy (drak nad hradem) a přes její spodní okraj portrét se jménem."""
+    l = app.look
+    if not l.banner:
+        return ft.Container(header, padding=ft.Padding.symmetric(horizontal=16))
+    return ft.Stack([
+        ft.Image(src=l.banner, fit=ft.BoxFit.COVER, height=128, left=0, right=0, top=0, opacity=0.9),
+        ft.Container(height=130, left=0, right=0, top=0,
+                     gradient=ft.LinearGradient(begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER,
+                                                colors=["#00000000", l.bg], stops=[0.3, 0.97])),
+        ft.Container(header, left=16, right=16, bottom=0),
+    ], height=196)
 
 
 def edit_character(app) -> None:
@@ -426,10 +441,10 @@ def postup(app):
         attr_cells.append(ft.Container(ft.Column([
             k.muted(a, size=11, weight=ft.FontWeight.BOLD),
             ft.IconButton(ft.Icons.ADD, on_click=adj_attr(i, +1), icon_color=l.ink, tooltip=f"Zvýšit {a}"),
-            k.text(w["attrs"][i], size=20, weight=ft.FontWeight.BOLD, head=True, color=l.accent if changed else l.ink),
+            k.text(w["attrs"][i], size=20, weight=ft.FontWeight.BOLD, head=True, color=l.hi if changed else l.ink),
             ft.IconButton(ft.Icons.REMOVE, on_click=adj_attr(i, -1), icon_color=l.ink, tooltip=f"Snížit {a}"),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0), expand=1, bgcolor=l.card,
-            border=ft.Border.all(2 if changed else 1, l.accent if changed else l.border),
+            border=ft.Border.all(2 if changed else 1, l.hi if changed else l.border),
             border_radius=ft.BorderRadius.all(l.radius), padding=ft.Padding.symmetric(vertical=6)))
 
     needs_branch = (not is_dh and w["level"] >= drd_obory.ADV_LEVEL and not c.get("branch")
@@ -510,7 +525,7 @@ def dovednosti(app):
             rows.append(k.row_item(
                 s["name"], f"{s['attr']} · stupeň {s['level']}", sub=s.get("kind"),
                 badge="VLASTNÍ" if s.get("kind") == "Vlastní" else None, on_click=lambda e, s=s: edit_skill(app, s),
-                trailing=ft.IconButton(ft.Icons.CASINO_OUTLINED, icon_color=l.accent, tooltip="Hodit",
+                trailing=ft.IconButton(ft.Icons.CASINO_OUTLINED, icon_color=l.hi, tooltip="Hodit",
                                        on_click=lambda e, s=s: app.go("kostky", dice_tab="Dovednost",
                                                                       dice_skill=s["name"]))))
         info = (f"Dovednostní body: {c.get('skill_points', 0)}. Za 1 bod se naučíš novou dovednost na 1. stupeň. "
@@ -520,7 +535,7 @@ def dovednosti(app):
             rows.append(k.row_item(
                 a["name"], f"{a['pct']} %", sub=(a.get("kind") or "") + (f" · oprava {a['attr']}" if a.get("attr") else ""),
                 badge="VLASTNÍ" if a.get("kind") == "Vlastní" else None, on_click=lambda e, a=a: edit_ability(app, a),
-                trailing=ft.IconButton(ft.Icons.CASINO_OUTLINED, icon_color=l.accent, tooltip="Hodit k%",
+                trailing=ft.IconButton(ft.Icons.CASINO_OUTLINED, icon_color=l.hi, tooltip="Hodit k%",
                                        on_click=lambda e, a=a: app.go("kostky", dice_tab="Schopnost",
                                                                       dice_ability=a["name"]))))
         info = ("Schopnosti povolání (např. zlodějské činnosti, stopování) a vlastní dovednosti podle domácích "
@@ -618,14 +633,14 @@ def class_abilities_card(app, cls: str, level: int, attrs: list[int], roll: bool
         on_click = None
         if roll and has_pct and not locked:
             on_click = lambda e, n=a["name"]: app.go("kostky", dice_tab="Schopnost", dice_ability=n)  # noqa: E731
-            trailing = ft.Icon(ft.Icons.CASINO_OUTLINED, color=l.accent, size=22)
+            trailing = ft.Icon(ft.Icons.CASINO_OUTLINED, color=l.hi, size=22)
         rows.append(ft.Container(ft.Row([
             ft.Column([k.text(a["name"], size=15, weight=ft.FontWeight.W_600, max_lines=1,
                               color=l.muted if locked else None),
                        k.muted(f"od {a['from_level']}. úrovně" if locked else a["sub"], size=12, max_lines=2)],
                       spacing=1, expand=True),
             k.text(value, size=19, weight=ft.FontWeight.BOLD, head=True,
-                   color=l.accent if has_pct and not locked else l.muted),
+                   color=l.hi if has_pct and not locked else l.muted),
             *([trailing] if trailing else []),
         ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER), on_click=on_click, ink=on_click is not None))
     return k.list_card(rows)

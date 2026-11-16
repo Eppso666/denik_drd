@@ -148,7 +148,7 @@ def backup_card(app) -> ft.Control:
     warn = bool(app.order) and (not last or time.time() - float(last) > REMIND_DAYS * 86400)
     return k.card(ft.Column([
         ft.Row([ft.Icon(ft.Icons.WARNING_AMBER if warn else ft.Icons.SAVE_OUTLINED,
-                        color=l.warn if warn else l.accent),
+                        color=l.warn if warn else l.hi),
                 k.text("Záloha dat", size=15, weight=ft.FontWeight.W_600, expand=True)]),
         k.muted(info + " Data jsou jen v tomto zařízení – prohlížeč je může smazat. Zálohu si ulož do souboru a "
                 "kdykoli ji obnov (i na jiném zařízení).", size=13),

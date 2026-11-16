@@ -29,38 +29,82 @@ class Kit:
     def title(self, value, size: float = 24) -> ft.Text:
         return self.text(value, size=size, weight=ft.FontWeight.BOLD, head=True)
 
-    def section(self, value, trailing: ft.Control | None = None) -> ft.Control:
-        t = self.text(value.upper() if self.l.key != "drd" else value, size=14 if self.l.key != "drd" else 18,
-                      weight=ft.FontWeight.BOLD, color=self.l.accent, head=True)
-        if trailing is None:
-            return t
-        return ft.Row([t, trailing], alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                      vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    # --- ozdoby grafického návrhu ---------------------------------------------
+    def grad(self, top: str, bottom: str) -> ft.LinearGradient:
+        return ft.LinearGradient(begin=ft.Alignment.TOP_CENTER, end=ft.Alignment.BOTTOM_CENTER, colors=[top, bottom])
 
-    # --- kontejnery ----------------------------------------------------------
-    def card(self, content: ft.Control, padding: int = 14, accent: bool = False, on_click=None, bg=None) -> ft.Container:
+    def glow(self, strength: float = 14) -> list[ft.BoxShadow]:
+        return [ft.BoxShadow(blur_radius=strength, spread_radius=0, color=self.l.glow)]
+
+    def framed(self, content: ft.Control, padding=None, glow: bool = False, bg: str | None = None,
+               on_click=None, border_color: str | None = None, corners: bool = True, expand=None) -> ft.Control:
+        """Kovový rámeček s vnitřní linkou a zlatými kosočtverci v rozích."""
+        pad = padding if isinstance(padding, ft.Padding) else ft.Padding.all(14 if padding is None else padding)
+        box = ft.Container(
+            content=ft.Container(content=content, padding=pad, border=ft.Border.all(1, self.l.border),
+                                 border_radius=ft.BorderRadius.all(max(0, self.l.radius - 2))),
+            padding=ft.Padding.all(2), bgcolor=bg or self.l.card,
+            border=ft.Border.all(1, border_color or self.l.frame), border_radius=ft.BorderRadius.all(self.l.radius),
+            shadow=self.glow() if glow else None, on_click=on_click, ink=on_click is not None,
+        )
+        if not corners:
+            box.expand = expand
+            return box
+        dots = [ft.Container(width=7, height=7, bgcolor=self.l.orn, rotate=ft.Rotate(0.785), **pos)
+                for pos in ({"left": -3, "top": -3}, {"right": -3, "top": -3},
+                            {"left": -3, "bottom": -3}, {"right": -3, "bottom": -3})]
+        return ft.Stack([box, *dots], clip_behavior=ft.ClipBehavior.NONE, expand=expand, fit=ft.StackFit.PASS_THROUGH)
+
+    def parch(self, content: ft.Control, padding: int = 14) -> ft.Control:
+        """Pergamenový (DrD) / ledový (DH) panel pro údaje, které mají vyniknout."""
         return ft.Container(
-            content=content, padding=ft.Padding.all(padding), bgcolor=bg or self.l.card,
-            border=ft.Border.all(2 if accent else 1, self.l.accent if accent else self.l.border),
-            border_radius=ft.BorderRadius.all(self.l.radius), on_click=on_click, ink=on_click is not None,
+            content=content, padding=ft.Padding.all(padding), bgcolor=self.l.parch,
+            border=ft.Border.all(1, self.l.frame), border_radius=ft.BorderRadius.all(self.l.radius),
+            shadow=[ft.BoxShadow(blur_radius=0, spread_radius=3, color=self.l.bg),
+                    ft.BoxShadow(blur_radius=0, spread_radius=4, color=self.l.border)],
+            margin=ft.Margin.symmetric(horizontal=4, vertical=4),
         )
 
-    def list_card(self, rows: list[ft.Control]) -> ft.Container:
+    def divider(self) -> ft.Control:
+        def line(flip: bool) -> ft.Control:
+            return ft.Container(height=1, expand=True, gradient=ft.LinearGradient(
+                begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
+                colors=["#00000000", self.l.frame] if flip else [self.l.frame, "#00000000"]))
+        return ft.Row([line(True), ft.Icon(getattr(ft.Icons, self.l.rune), size=14, color=self.l.orn), line(False)],
+                      spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    def section(self, value, trailing: ft.Control | None = None, icon=None) -> ft.Control:
+        parts: list[ft.Control] = []
+        if icon is not None:
+            parts.append(ft.Icon(icon, size=20, color=self.l.orn))
+        parts.append(self.text(value, size=18, weight=ft.FontWeight.BOLD, head=True))
+        parts.append(ft.Container(height=1, expand=True, margin=ft.Margin.symmetric(horizontal=6),
+                                  gradient=ft.LinearGradient(begin=ft.Alignment.CENTER_LEFT,
+                                                             end=ft.Alignment.CENTER_RIGHT,
+                                                             colors=[self.l.frame, "#00000000"])))
+        if trailing is not None:
+            parts.append(trailing)
+        return ft.Container(ft.Row(parts, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            margin=ft.Margin.only(top=6))
+
+    # --- kontejnery ----------------------------------------------------------
+    def card(self, content: ft.Control, padding: int = 14, accent: bool = False, on_click=None, bg=None) -> ft.Control:
+        return self.framed(content, padding=padding, glow=accent, bg=bg, on_click=on_click,
+                           border_color=self.l.orn if accent else None)
+
+    def list_card(self, rows: list[ft.Control]) -> ft.Control:
         children: list[ft.Control] = []
         for i, r in enumerate(rows):
             children.append(ft.Container(
-                content=r, padding=ft.Padding.symmetric(horizontal=14, vertical=10),
-                border=ft.Border.only(bottom=ft.BorderSide(1, self.l.card2)) if i < len(rows) - 1 else None,
+                content=r, padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+                border=ft.Border.only(bottom=ft.BorderSide(1, self.l.border)) if i < len(rows) - 1 else None,
             ))
-        return ft.Container(
-            content=ft.Column(children, spacing=0), bgcolor=self.l.card,
-            border=ft.Border.all(1, self.l.border), border_radius=ft.BorderRadius.all(self.l.radius),
-        )
+        return self.framed(ft.Column(children, spacing=0), padding=0)
 
     def row_item(self, left: str, right: str = "", sub: str | None = None, on_click=None, badge: str | None = None,
                  trailing: ft.Control | None = None) -> ft.Control:
         left_col: list[ft.Control] = []
-        title_row: list[ft.Control] = [self.text(left, size=15, weight=ft.FontWeight.W_600, max_lines=1)]
+        title_row: list[ft.Control] = [self.text(left, size=16, weight=ft.FontWeight.BOLD, max_lines=1)]
         if badge:
             title_row.append(self.badge(badge))
         left_col.append(ft.Row(title_row, spacing=8, tight=True))
@@ -68,7 +112,9 @@ class Kit:
             left_col.append(self.muted(sub, max_lines=2))
         controls: list[ft.Control] = [ft.Column(left_col, spacing=2, expand=True)]
         if right:
-            controls.append(self.muted(right, size=14))
+            short = len(str(right)) <= 7
+            controls.append(self.text(right, size=16 if short else 14, weight=ft.FontWeight.BOLD, head=short,
+                                      color=None if short else self.l.muted))
         if trailing:
             controls.append(trailing)
         return ft.Container(
@@ -78,39 +124,45 @@ class Kit:
 
     def badge(self, label: str, color: str | None = None, fg: str | None = None) -> ft.Container:
         return ft.Container(
-            content=ft.Text(label, size=10, weight=ft.FontWeight.BOLD, color=fg or self.l.ink),
-            bgcolor=color or self.l.card2, padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+            content=ft.Text(label, size=10, weight=ft.FontWeight.BOLD, color=fg or self.l.orn),
+            bgcolor=color, border=ft.Border.all(1, self.l.frame), padding=ft.Padding.symmetric(horizontal=6, vertical=2),
             border_radius=ft.BorderRadius.all(4),
         )
 
     # --- tlačítka -----------------------------------------------------------
     def button(self, label: str, on_click, primary: bool = True, expand=None, height: int = 48, icon=None,
                disabled: bool = False) -> ft.Control:
-        size = 14 if expand else None
+        size = 14 if expand else 15
+        fg = self.l.on_accent if primary else self.l.ink
+        parts: list[ft.Control] = []
+        if icon is not None:
+            parts.append(ft.Icon(icon, size=18, color=fg if primary else self.l.orn))
+        parts.append(ft.Text(label, weight=ft.FontWeight.BOLD, size=size, no_wrap=True, color=fg,
+                             font_family=self.hf))
         if primary:
-            return ft.FilledButton(
-                content=ft.Text(label, weight=ft.FontWeight.BOLD, size=size, no_wrap=True),
-                icon=icon, on_click=on_click, expand=expand,
-                height=height, disabled=disabled,
-                style=ft.ButtonStyle(bgcolor=self.l.accent, color=self.l.on_accent,
-                                     shape=ft.RoundedRectangleBorder(radius=self.l.radius)),
-            )
-        return ft.OutlinedButton(
-            content=ft.Text(label, weight=ft.FontWeight.W_600, size=size, no_wrap=True), icon=icon,
-            on_click=on_click, expand=expand,
-            height=height, disabled=disabled,
-            style=ft.ButtonStyle(color=self.l.ink, side=ft.BorderSide(1, self.l.border),
-                                 shape=ft.RoundedRectangleBorder(radius=self.l.radius)),
+            deco = dict(gradient=self.grad(self.l.accent2, self.l.accent), border=ft.Border.all(1, self.l.orn),
+                        shadow=self.glow(12))
+        else:
+            deco = dict(gradient=self.grad(self.l.card2, self.l.card), border=ft.Border.all(1, self.l.frame))
+        return ft.Container(
+            content=ft.Row(parts, spacing=8, alignment=ft.MainAxisAlignment.CENTER, tight=True,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            height=height, expand=expand, padding=ft.Padding.symmetric(horizontal=14),
+            border_radius=ft.BorderRadius.all(self.l.radius), alignment=ft.Alignment.CENTER,
+            on_click=None if disabled else on_click, ink=not disabled, opacity=0.45 if disabled else 1.0,
+            disabled=disabled, data="primary" if primary else "secondary", **deco,
         )
 
     def pill(self, label: str, selected: bool, on_click, expand=None) -> ft.Container:
         return ft.Container(
-            content=ft.Text(label, size=12 if expand else 13, weight=ft.FontWeight.BOLD, no_wrap=True,
+            content=ft.Text(label, size=13 if expand else 14, weight=ft.FontWeight.BOLD, no_wrap=True,
                             color=self.l.on_accent if selected else self.l.ink, text_align=ft.TextAlign.CENTER),
-            bgcolor=self.l.accent if selected else self.l.card,
-            border=ft.Border.all(1, self.l.accent if selected else self.l.border),
-            border_radius=ft.BorderRadius.all(999 if self.l.key != "drd" else 4),
-            padding=ft.Padding.symmetric(horizontal=6 if expand else 12, vertical=10), on_click=on_click, ink=True,
+            gradient=self.grad(self.l.accent2, self.l.accent) if selected else None,
+            bgcolor=None if selected else self.l.card,
+            border=ft.Border.all(1, self.l.orn if selected else self.l.border),
+            shadow=self.glow(10) if selected else None,
+            border_radius=ft.BorderRadius.all(self.l.radius),
+            padding=ft.Padding.symmetric(horizontal=6 if expand else 14, vertical=10), on_click=on_click, ink=True,
             alignment=ft.Alignment.CENTER if expand else None, expand=expand,
         )
 
@@ -122,35 +174,39 @@ class Kit:
     def search(self, value: str, on_search: Callable[[str], None], hint: str = "Hledat…") -> ft.Control:
         """Vyhledávací pole – hledá po Enteru nebo lupě (překreslení při psaní by bralo fokus)."""
         field = ft.TextField(
-            value=value or "", hint_text=hint, dense=True, expand=True, border_color=self.l.border,
-            focused_border_color=self.l.accent, color=self.l.ink, cursor_color=self.l.accent,
+            value=value or "", hint_text=hint, dense=True, expand=True, border_color=self.l.frame,
+            focused_border_color=self.l.orn, color=self.l.ink, cursor_color=self.l.orn,
+            filled=True, fill_color=self.l.bg, border_radius=self.l.radius,
             prefix_icon=ft.Icons.SEARCH, on_submit=lambda e: on_search((field.value or "").strip()),
         )
-        row: list[ft.Control] = [field, self.icon_button(ft.Icons.ARROW_FORWARD, lambda e: on_search(
+        row: list[ft.Control] = [field, self.square_button(ft.Icons.ARROW_FORWARD, lambda e: on_search(
             (field.value or "").strip()), "Hledat")]
         if value:
-            row.append(self.icon_button(ft.Icons.CLOSE, lambda e: on_search(""), "Zrušit hledání"))
-        return ft.Row(row, spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            row.append(self.square_button(ft.Icons.CLOSE, lambda e: on_search(""), "Zrušit hledání"))
+        return ft.Row(row, spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def icon_button(self, icon, on_click, tooltip: str, color: str | None = None) -> ft.IconButton:
         return ft.IconButton(icon=icon, on_click=on_click, tooltip=tooltip, icon_color=color or self.l.ink)
 
+    def square_button(self, icon, on_click, tooltip: str) -> ft.IconButton:
+        return ft.IconButton(
+            icon=icon, on_click=on_click, tooltip=tooltip, icon_color=self.l.orn,
+            style=ft.ButtonStyle(bgcolor=self.l.card2, side=ft.BorderSide(1, self.l.frame),
+                                 shape=ft.RoundedRectangleBorder(radius=self.l.radius)),
+        )
+
     def stepper(self, value, on_minus, on_plus, label: str | None = None, sub: str | None = None,
                 value_color: str | None = None) -> ft.Control:
-        btn = lambda ic, cb, tip: ft.IconButton(  # noqa: E731
-            icon=ic, on_click=cb, tooltip=tip, icon_color=self.l.ink,
-            style=ft.ButtonStyle(bgcolor=self.l.card2, shape=ft.RoundedRectangleBorder(radius=self.l.radius)),
-        )
         core = ft.Row([
-            btn(ft.Icons.REMOVE, on_minus, "Snížit"),
-            ft.Container(self.text(value, size=20, weight=ft.FontWeight.BOLD, head=True, color=value_color,
-                                   align=ft.TextAlign.CENTER), width=52 if len(str(value)) <= 3 else 72,
+            self.square_button(ft.Icons.REMOVE, on_minus, "Snížit"),
+            ft.Container(self.text(value, size=21, weight=ft.FontWeight.BOLD, head=True, color=value_color,
+                                   align=ft.TextAlign.CENTER), width=56 if len(str(value)) <= 3 else 76,
                          alignment=ft.Alignment.CENTER),
-            btn(ft.Icons.ADD, on_plus, "Zvýšit"),
+            self.square_button(ft.Icons.ADD, on_plus, "Zvýšit"),
         ], spacing=4, tight=True)
         if label is None:
             return core
-        left = [self.text(label, size=15, weight=ft.FontWeight.W_600)]
+        left = [self.text(label, size=16, weight=ft.FontWeight.BOLD)]
         if sub:
             left.append(self.muted(sub))
         return ft.Row([ft.Column(left, spacing=2, expand=True), core],
@@ -158,29 +214,51 @@ class Kit:
 
     # --- čísla ---------------------------------------------------------------
     def stat(self, label: str, value, sub: str | None = None, sub_color: str | None = None, on_click=None) -> ft.Container:
-        col = [self.muted(label, size=11, weight=ft.FontWeight.BOLD),
-               self.text(value, size=22, weight=ft.FontWeight.BOLD, head=True)]
+        col = [self.muted(label, size=12, weight=ft.FontWeight.BOLD),
+               self.text(value, size=24, weight=ft.FontWeight.BOLD, head=True)]
         if sub is not None:
-            col.append(self.text(sub, size=12, weight=ft.FontWeight.BOLD, color=sub_color or self.l.muted))
+            col.append(self.text(sub, size=13, weight=ft.FontWeight.BOLD, color=sub_color or self.l.muted))
         return ft.Container(
-            content=ft.Column(col, spacing=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=self.l.card, border=ft.Border.all(1, self.l.border),
-            border_radius=ft.BorderRadius.all(self.l.radius), padding=ft.Padding.symmetric(vertical=8, horizontal=2),
+            content=ft.Container(ft.Column(col, spacing=1, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                 border=ft.Border.all(1, self.l.border),
+                                 border_radius=ft.BorderRadius.all(max(0, self.l.radius - 2)),
+                                 padding=ft.Padding.symmetric(vertical=8, horizontal=2),
+                                 alignment=ft.Alignment.CENTER),
+            gradient=self.grad(self.l.card2, self.l.card), border=ft.Border.all(1, self.l.frame),
+            border_radius=ft.BorderRadius.all(self.l.radius), padding=ft.Padding.all(2),
             expand=1, on_click=on_click, ink=on_click is not None,
         )
 
-    def bar(self, value: float, maximum: float, color: str) -> ft.ProgressBar:
+    def bar(self, value: float, maximum: float, color: str, dark: str | None = None, height: int = 16) -> ft.Control:
         frac = 0 if maximum <= 0 else max(0.0, min(1.0, value / maximum))
-        return ft.ProgressBar(value=frac, color=color, bgcolor=self.l.card2, bar_height=10,
-                              border_radius=ft.BorderRadius.all(4))
+        full = int(round(frac * 1000))
+        parts: list[ft.Control] = []
+        if full > 0:
+            parts.append(ft.Container(expand=full, border_radius=ft.BorderRadius.all(2),
+                                      gradient=self.grad(color, dark or color),
+                                      shadow=[ft.BoxShadow(blur_radius=8, color=color + "99")]))
+        if full < 1000:
+            parts.append(ft.Container(expand=1000 - full))
+        return ft.Container(
+            content=ft.Row(parts, spacing=0), height=height, padding=ft.Padding.all(2), bgcolor=self.l.bg,
+            border=ft.Border.all(1, self.l.frame), border_radius=ft.BorderRadius.all(3),
+        )
 
-    def gauge(self, label: str, value, maximum, color: str, extra: str = "") -> ft.Control:
+    def gauge(self, label: str, value, maximum, color: str, extra: str = "", icon=None) -> ft.Control:
+        dark = None
+        if color == self.l.hp:
+            dark, icon = self.l.hp_dark, icon or ft.Icons.FAVORITE
+        elif color == self.l.mana:
+            dark, icon = self.l.mana_dark, icon or ft.Icons.AUTO_AWESOME
+        head: list[ft.Control] = []
+        if icon is not None:
+            head.append(ft.Icon(icon, size=20, color=color))
+        head += [self.text(label, size=17, weight=ft.FontWeight.BOLD, head=True, expand=True),
+                 self.text(f"{value} / {maximum}{extra}", size=17, weight=ft.FontWeight.BOLD, head=True)]
         return ft.Column([
-            ft.Row([self.text(label, size=14, weight=ft.FontWeight.W_600),
-                    self.text(f"{value} / {maximum}{extra}", size=14)],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            self.bar(float(value), float(maximum), color),
-        ], spacing=5)
+            ft.Row(head, spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            self.bar(float(value), float(maximum), color, dark),
+        ], spacing=6)
 
     def empty(self, text: str) -> ft.Control:
         return ft.Container(self.muted(text, size=14, align=ft.TextAlign.CENTER), padding=ft.Padding.all(20),

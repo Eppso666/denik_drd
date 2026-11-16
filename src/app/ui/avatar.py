@@ -25,6 +25,7 @@ def avatar(app, c: dict, size: int, radius: int, accent: str, bg: str, border: i
         inner, width=size, height=size, alignment=ft.Alignment.CENTER, bgcolor=bg,
         border=ft.Border.all(border, accent), border_radius=ft.BorderRadius.all(radius),
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS, on_click=on_click,
+        shadow=[ft.BoxShadow(blur_radius=18, color=app.look.glow)],
         tooltip="Změnit portrét" if on_click else None,
     )
 

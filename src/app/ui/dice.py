@@ -50,23 +50,23 @@ def _free_dice(app, sides_list: list[str], count: int = 1) -> ft.Control:
             if name == "k6+":
                 rolls = open_d6()
                 _push(app, "k6+", sum(rolls), "Hody: " + " + ".join(map(str, rolls)) if len(rolls) > 1 else "Jeden hod",
-                      l.accent)
+                      l.hi)
             elif name == "k%":
-                _push(app, "k%", d(100), "Procentový hod (1–100)", l.accent)
+                _push(app, "k%", d(100), "Procentový hod (1–100)", l.hi)
             else:
                 n = int(name[1:])
                 rolls = [d(n) for _ in range(count)]
                 _push(app, f"{count}{name}" if count > 1 else name, sum(rolls),
-                      "Hody: " + " + ".join(map(str, rolls)) if count > 1 else f"Rozsah 1–{n}", l.accent)
+                      "Hody: " + " + ".join(map(str, rolls)) if count > 1 else f"Rozsah 1–{n}", l.hi)
         sub = {"k6+": "šestka se hází znovu", "k%": "procentový hod"}.get(name, f"1–{name[1:]}")
         return ft.Container(
             ft.Column([k.text(name, size=26 if not special else 22, weight=ft.FontWeight.BOLD, head=True,
-                              align=ft.TextAlign.CENTER, color=l.accent if special else None),
+                              align=ft.TextAlign.CENTER, color=l.hi if special else None),
                        k.muted(sub, size=11, align=ft.TextAlign.CENTER)],
                       spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                       alignment=ft.MainAxisAlignment.CENTER),
             height=height, expand=1, alignment=ft.Alignment.CENTER, bgcolor=l.card2 if special else l.card,
-            border=ft.Border.all(1, l.accent if special else l.border), border_radius=ft.BorderRadius.all(l.radius),
+            border=ft.Border.all(1, l.hi if special else l.border), border_radius=ft.BorderRadius.all(l.radius),
             on_click=roll, ink=True)
 
     plain = [n for n in sides_list if n not in ("k6+", "k%")]
@@ -104,7 +104,7 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
         rolls = open_d6() if exploding else [d(6)]
         total = uc + sum(rolls) + pen
         _push(app, f"Útok · {w['name']}", total, f"ÚČ {uc} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})" +
-              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.accent)
+              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi)
 
     out = rows + [
         k.muted(f"Útok = ÚČ + {'k6+ (šestka se hází znovu)' if exploding else 'k6'}. Obránce hází OČ + "
@@ -117,7 +117,7 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
             app.settings["dh_exploding"] = e.control.value
             app.save(settings=True)
             app.refresh()
-        out.insert(len(rows), ft.Switch(label="Šestka se hází znovu (k6+)", value=exploding, active_color=l.accent,
+        out.insert(len(rows), ft.Switch(label="Šestka se hází znovu (k6+)", value=exploding, active_color=l.hi,
                                         on_change=toggle))
     return out
 
@@ -320,7 +320,7 @@ def souboj(app):
         if wound:
             foe["hp"] = foe["hp"] - wound
             note(f"Útok {at} ({uc}+{roll_expr(a)}{mtxt}) proti obraně {de} ({foe['oc']}+{roll_expr(dd)}) – zásah za {wound}",
-                 l.accent)
+                 l.hi)
             if foe["hp"] <= 0:
                 note(f"{foe['name']} padl!", l.ok)
         else:
@@ -382,7 +382,7 @@ def souboj(app):
         k.text(c["name"].split()[0], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
         k.muted(w["name"], max_lines=1),
         k.text(f"ÚČ {uc} · {'OČ' if is_dh else 'obr.'} {my_oc}", size=17, weight=ft.FontWeight.BOLD, head=True,
-               color=l.accent),
+               color=l.hi),
         k.muted(f"velikost {my_size}" + (f" · postih {pen}" if pen else ""), size=12),
         k.bar(c["hp"], c["hp_max"], l.hp), k.muted(f"Životy {c['hp']} / {c['hp_max']}"),
     ], spacing=3), padding=12)

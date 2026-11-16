@@ -34,7 +34,7 @@ def xp_table_dialog(app, c: dict) -> None:
     rows: list[ft.Control] = []
     for lv, xp, cost in xp_rows(c):
         cur = lv == c["level"]
-        color = l.accent if cur else (l.muted if lv < c["level"] else None)
+        color = l.hi if cur else (l.muted if lv < c["level"] else None)
         cells = [k.text(f"{lv}.", size=13, weight=ft.FontWeight.BOLD if cur else None, color=color, expand=1),
                  k.text(f"{xp:,}".replace(",", " "), size=13, color=color, expand=2, align=ft.TextAlign.RIGHT)]
         if cost is not None:
