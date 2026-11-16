@@ -10,10 +10,13 @@ from __future__ import annotations
 import random
 import time
 
-try:  # při sestavení se vytvoří z GitHub Secrets (SUPABASE_URL, SUPABASE_ANON_KEY)
+try:  # veřejné údaje projektu Supabase (URL + publishable key)
     from . import config  # type: ignore
-except ImportError:  # pragma: no cover - lokální vývoj bez klíčů
+except ImportError:  # pragma: no cover
     config = None
+
+# Klient pro Supabase se zapne v další verzi – do té doby kampaň běží jen v tomto zařízení.
+CLIENT_READY = False
 
 # Bez 0/O, 1/I/L – kód se dobře přečte i nadiktuje.
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -24,7 +27,8 @@ class NotConfigured(Exception):
 
 
 def configured() -> bool:
-    return bool(config and getattr(config, "SUPABASE_URL", "") and getattr(config, "SUPABASE_ANON_KEY", ""))
+    has_keys = bool(config and getattr(config, "SUPABASE_URL", "") and getattr(config, "SUPABASE_KEY", ""))
+    return CLIENT_READY and has_keys
 
 
 def new_code(rng: random.Random | None = None) -> str:

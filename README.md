@@ -137,3 +137,15 @@ v aplikaci řešené rozumným výchozím nastavením a dají se upravit ručně
 
 Písma (Cinzel, IM Fell English SC, Alegreya Sans) mají licenci SIL Open Font License a stahují se při sestavení.
 Bez nich aplikace použije výchozí písmo zařízení.
+
+## Družina – server Supabase
+
+- Projekt: `https://aocrwaogxwjntcenumbb.supabase.co`. URL a **publishable key** jsou v `src/app/config.py`
+  – smí být veřejně, data chrání pravidla přístupu (RLS). **Secret key a heslo k databázi nikdy do repozitáře.**
+- Databáze: celý skript `supabase/schema.sql` se spustí v Supabase (SQL Editor → New query → Run).
+  Jde spustit i opakovaně. Vytvoří tabulky `campaigns`, `members`, `member_sheets`, `rolls`, `shared_images`,
+  pohled `rolls_feed`, funkce `create_campaign` / `join_campaign`, úložiště `campaign-images` a Realtime.
+- Přihlášení je anonymní: Authentication → Sign In / Providers → **Allow anonymous sign-ins** zapnout.
+- Kdo co vidí: kampaň a členy jen členové; celý deník jen hráč a PJ; skryté hody jen PJ (ostatní vidí
+  „Skrytý hod – jen pro PJ“); obrázky nahrává jen PJ. Kampaň patří k jedné hře (DrD / DH).
+- Klient v aplikaci se zapne přepínačem `CLIENT_READY` v `src/app/sync.py`.
