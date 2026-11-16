@@ -55,9 +55,9 @@ def start(app):
     controls.append(backup.backup_card(app))
     controls.append(k.section("Kampaně a družina"))
     controls.append(k.card(ft.Column([
-        k.text("Propojení s ostatními hráči", size=15, weight=ft.FontWeight.W_600),
-        k.muted("Sdílené kampaně, hody družiny a mapy od PJ přibudou v další verzi (Supabase). "
-                "Tato verze ukládá vše jen v tomto zařízení.", size=13),
+        k.text("Hraj s družinou", size=15, weight=ft.FontWeight.W_600),
+        k.muted("Otevři postavu a klepni na kartu Družina: připojíš se kódem od PJ, nebo kampaň jako PJ založíš. "
+                "Kampaň patří vždy k jedné hře (DrD nebo DH).", size=13),
     ], spacing=4)))
     controls.append(k.muted(f"Verze {VERSION}", size=12, align=ft.TextAlign.CENTER))
     return Screen("Tvoje postavy", [column(controls)])

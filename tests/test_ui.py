@@ -435,3 +435,32 @@ def test_sheet_xp_and_version(make_app):
     sheet.xp_table_dialog(app, c)
     assert page.dialogs
     page.dialogs.clear()
+
+
+def test_druzina(make_app):
+    from app import sync
+    assert sync.normalize_code("k7p 42q") == "K7P-42Q" and sync.normalize_code("K0P-42Q") is None
+    assert sync.normalize_code("abc") is None and len(sync.new_code()) == 7
+    app, page = make_app()
+    c = model.create_character("drd", "Elwin", "Elf", "Hraničář", [10, 14, 11, 13, 12])
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    app.go("druzina")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert "Hraj s družinou" in texts
+    try:
+        sync.join_campaign(c, "K7P-42Q")
+        raise AssertionError("bez serveru se připojit nejde")
+    except sync.NotConfigured:
+        pass
+    camp = sync.create_campaign(c, "Prokletí Černé věže")
+    assert camp["role"] == "gm" and camp["system"] == "drd" and sync.can_join(c, "drd") and not sync.can_join(c, "dh")
+    model.add_history(c, "Útok", "13")
+    assert sync.rolls(c)[0]["value"] == "13" and sync.pending(c) == 1
+    camp["share_hp"] = False
+    assert sync.snapshot(c)["hp"] is None
+    app.go("druzina")
+    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+    assert "Prokletí Černé věže" in texts and camp["code"] in texts
+    assert click_everything(app, page) > 0

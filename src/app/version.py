@@ -1,9 +1,13 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.11.0": [
+        "Družina: na kartě postavy se připojíš ke kampani kódem od PJ, nebo ji jako PJ založíš. "
+        "Propojení s ostatními hráči se zapne, až bude nastavený server.",
+    ],
     "0.10.0": [
         "Nový vzhled podle grafického návrhu: Dračí doupě ve stylu Fire Fantasy (tmavý kámen, bronz, zlato, "
         "rudá záře, pergamen), Dračí Hlídka ve stylu Ice Fantasy (temně modrá, stříbro, ledová záře).",

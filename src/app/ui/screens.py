@@ -1,7 +1,7 @@
 """Rozcestník obrazovek."""
 from __future__ import annotations
 
-from . import catalog, character, dice, inventory, journal, magic, start
+from . import catalog, character, dice, druzina, inventory, journal, magic, start
 
 BUILDERS = {
     "start": start.start,
@@ -17,6 +17,7 @@ BUILDERS = {
     "kouzla": magic.kouzla,
     "obor": magic.obor,
     "alchymie": magic.alchymie,
+    "druzina": druzina.druzina,
     "katalog": catalog.katalog,
 }
 

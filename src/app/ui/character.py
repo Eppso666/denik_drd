@@ -10,7 +10,7 @@ from ..rules import dh, dh_vybava, drd, drd_kouzla, drd_obory
 from ..rules.common import d, fmt
 from . import avatar as avatar_ui
 from . import companions as comp_ui
-from . import magic, sheet
+from . import druzina, magic, sheet
 from .kit import column
 
 
@@ -212,6 +212,7 @@ def postava(app):
 
     controls = [
         k.card(ft.Column(gauges, spacing=10)),
+        druzina.status_card(app, c),
         k.section("Vlastnosti", plus, icon=ft.Icons.AUTO_AWESOME),
         attrs,
         *pets,
