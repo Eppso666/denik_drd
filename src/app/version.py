@@ -1,9 +1,17 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.12.0"
+VERSION = "0.13.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.13.0": [
+        "Oddělený Stůl PJ: Pán jeskyně vede kampaň bez postavy – Kampaň, Souboj, Bestiář PJ, Nástroje a Poznámky.",
+        "PJ přijímá hráče, zamyká kampaň a smí hráčům měnit životy a zkušenosti, poslat předmět nebo tajnou zprávu; "
+        "hráč to uvidí v Družině a změna se propíše do jeho deníku.",
+        "Propojení: U stolu (telefon PJ je stůl, stejná Wi-Fi, bez internetu – jen v aplikaci) nebo Vlastní server "
+        "PJ s průvodcem ve 4 krocích a pozvánkou přes QR nebo odkaz.",
+        "Souboj PJ s jednou iniciativou pro hráče i nestvůry, zkušenosti za boj k rozdělení družině.",
+    ],
     "0.12.0": [
         "Družina je propojená přes internet: PJ založí kampaň a pošle kód, hráči se připojí svou postavou.",
         "Členové s životy a stavem online, živé hody družiny (skryté hody PJ), mapy od PJ se uloží do Deníku, "

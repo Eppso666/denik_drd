@@ -437,30 +437,269 @@ def test_sheet_xp_and_version(make_app):
     page.dialogs.clear()
 
 
-def test_druzina(make_app):
-    from app import sync
-    assert sync.normalize_code("k7p 42q") == "K7P-42Q" and sync.normalize_code("K0P-42Q") is None
-    assert sync.normalize_code("abc") is None and len(sync.new_code()) == 7
+
+
+# ------------------------------------------------------------------------- Družina, Stůl PJ, propojení
+
+def texts_of(page):
+    return [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
+
+
+def click_screen(app, page, screen, rounds=1):
+    """Jako click_everything, ale pro obrazovky bez postavy (Stůl PJ, propojení)."""
+    clicked = 0
+    for _ in range(rounds):
+        for ctrl, attr, h in list(handlers(page.views)):
+            h(Ev(ctrl))
+            clicked += 1
+            while page.dialogs:
+                d = page.dialogs[-1]
+                acts = [a for a in (getattr(d, "actions", None) or []) if callable(getattr(a, "on_click", None))]
+                if not acts:
+                    page.dialogs.pop()
+                    continue
+                n = len(page.dialogs)
+                acts[-1].on_click(Ev(acts[-1]))
+                if len(page.dialogs) >= n:
+                    page.dialogs.pop()
+            drain(page)
+            if app.screen != screen:
+                if screen.startswith("pj_") and app.camp is None:
+                    return clicked
+                app.go(screen)
+    return clicked
+
+
+def test_start_modes_and_new_campaign(make_app):
+    from app.ui import propojeni
     app, page = make_app()
     c = model.create_character("drd", "Elwin", "Elf", "Hraničář", [10, 14, 11, 13, 12])
+    app.add_character(c)
+    app.render()
+    t = texts_of(page)
+    assert "Moje postavy" in t and "Vedu hru" in t and "Hraju" in t and "Vedu hru (PJ)" in t
+    app.ui["start_mode"] = "Vedu hru (PJ)"
+    app.render()
+    # nová kampaň u stolu
+    app.ui.update(new_name="Prokletí Černé věže", new_sys="drd", conn="table")
+    app.go("propojeni")
+    t = texts_of(page)
+    assert "Jak se budete propojovat?" in t and "U stolu" in t and "Vlastní server PJ" in t and "Server aplikace" in t
+    propojeni.create_table_campaign(app)
+    drain(page)
+    camp = app.camp
+    assert app.screen == "pj_kampan" and sync_is_table(camp) and app.hosts[camp["id"]].running
+    t = texts_of(page)
+    assert "Stůl je otevřený" in t and f"STŮL {camp['code']}" in t
+    app.go("start")
+    assert any("Prokletí Černé věže" == x for x in texts_of(page))
+
+
+def sync_is_table(camp):
+    from app import sync
+    return sync.is_table(camp)
+
+
+def _table_with_player(app):
+    """Kampaň u stolu s jedním přijatým a jedním čekajícím hráčem (přes stav stolu)."""
+    from app import stul, sync
+    from app.ui import propojeni
+    app.ui.update(new_name="Doly pod Černou horou", new_sys="dh")
+    propojeni.create_table_campaign(app)
+    camp = app.camp
+    state = app.table_state(camp)
+    thor = model.create_character("dh", "Thorgrim", "Trpaslík", "Válečník", [18, 9, 19, 10, 7])
+    state.handle("dev-a", "join", {"code": state.d["code"], "system": "dh", "char_id": thor["id"],
+                                   "snapshot": sync.snapshot(thor)})
+    state.handle("pj", "set_status", {"uid": "dev-a", "status": "approved"})
+    state.handle("dev-a", "put_sheet", {"sheet": sync.sheet(thor)})
+    state.handle("dev-b", "join", {"code": state.d["code"], "system": "dh", "char_id": "x",
+                                   "snapshot": {"name": "Brok Kamenný", "race": "Trpaslík", "cls": "Hraničář"}})
+    state.handle("dev-a", "add_rolls", {"rows": [{"who": "Thorgrim", "label": "Útok", "result": "12"}]})
+    import asyncio
+    asyncio.run(sync.sync_gm(stul.LocalTable(state), camp))
+    return camp, state
+
+
+def test_pj_table_screens_click(make_app):
+    from app import sync
+    app, page = make_app()
+    app.bestiary["dh"].append({"id": "b1", "name": "Skřet", "hp": 8, "uc": 3, "oc": 4, "dmg": 2, "xp": 40})
+    camp, state = _table_with_player(app)
+    app.go("pj_kampan")
+    t = texts_of(page)
+    assert "Thorgrim" in t and "Brok Kamenný" in t and "Přijmout" in t and "Rozdělit zkušenosti" in t
+    # souboj: hráč + nestvůra, útok, konec boje → zkušenosti
+    from app.ui import pj
+    pj.add_monster(app, camp, app.bestiary["dh"][0])
+    app.go("pj_souboj")
+    t = texts_of(page)
+    assert "Kolo 1" in t and "Skřet" in t and "Thorgrim" in t
+    mon = next(x for x in camp["combat"]["order"] if x["kind"] == "monster")
+    tgt = next(x for x in camp["combat"]["order"] if x["kind"] == "player")
+    pj.attack(app, camp, mon, tgt, hidden=True)
+    d = page.dialogs[-1]
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    assert any(o.get("op") in ("roll", "adjust") for o in camp["outbox"]) or state.d["rolls"]
+    mon["hp"] = 0
+    pj.end_combat(app, camp)
+    assert app.screen == "pj_nastroje" and camp["xp_pool"][0]["xp"] == 40
+    t = texts_of(page)
+    assert "Zkušenosti za boj" in t and "Rozdělit všem jednomu" in t
+    for s in ("pj_kampan", "pj_souboj", "pj_bestiar", "pj_nastroje", "pj_poznamky"):
+        app.gm_active = camp["id"]
+        if app.camp is None:
+            break
+        app.go(s)
+        assert click_screen(app, page, s) > 0, s
+    assert app.store.data
+
+
+def test_pj_edit_player_and_notes(make_app):
+    from app import stul, sync
+    from app.ui import pj
+    app, page = make_app()
+    camp, state = _table_with_player(app)
+    m = sync.players(camp)[0]
+    pj.edit_player(app, camp, m)
+    d = page.dialogs[-1]
+    t = [str(getattr(x, "value", "")) for x in walk(d)]
+    assert "Nové životy" in t and "Zkušenosti" in t and "Předat předmět do batohu" in t
+    for c in walk(d):
+        if isinstance(c, ft.Container) and isinstance(getattr(c, "content", None), ft.Row):
+            pass
+    # −5 životů a +10 zk. přes tlačítka
+    btn = next(c for c in walk(d) if getattr(c, "data", None) == "secondary" and
+               any(getattr(x, "value", "") == "−5" for x in walk(c)))
+    btn.on_click(Ev(btn))
+    plus = [c for c in walk(d) if isinstance(c, ft.IconButton) and c.tooltip == "Zvýšit"][-1]
+    plus.on_click(Ev(plus))
+    save = d.actions[-1]
+    save.on_click(Ev(save))
+    drain(page)
+    adj = [a for a in state.d["adjust"]] or [o for o in camp["outbox"] if o["op"] == "adjust"]
+    assert adj and adj[-1]["payload"]["xp"] == 10 and "hp" in adj[-1]["payload"]
+    # tajná zpráva hráči
+    app.go("pj_poznamky")
+    t = texts_of(page)
+    assert "Tajné poznámky" in t and "Připravené mapy" in t and "Poslat jen Thorgrimovi" in t
+
+
+def test_player_join_wait_and_campaign(make_app, monkeypatch):
+    from app import stul, sync
+    app, page = make_app()
+    state = stul.TableState(name="Doly pod Černou horou", system="dh")
+    host = stul.Host(state)
+
+    async def transport(method, url, headers, body):
+        import json as _j
+        import urllib.parse as up
+        status, out = host.route(method, up.urlparse(url).path, body or b"")
+        return status, _j.dumps(out).encode()
+    monkeypatch.setattr(stul, "TRANSPORT", transport)
+
+    async def found(hosts=None, timeout=0.8):
+        return [dict(state.ping(), host="192.168.1.5:47821")]
+    monkeypatch.setattr(stul, "find_tables", found)
+    c = model.create_character("dh", "Gorm Kladivo", "Trpaslík", "Válečník", [18, 9, 19, 10, 7])
     app.add_character(c)
     app.open_character(c["id"])
     drain(page)
     app.go("druzina")
-    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
-    assert "Hraj s družinou" in texts
-    try:
-        sync.join_campaign(c, "K7P-42Q")
-        raise AssertionError("bez serveru se připojit nejde")
-    except sync.NotConfigured:
-        pass
-    camp = sync.create_campaign(c, "Prokletí Černé věže")
-    assert camp["role"] == "gm" and camp["system"] == "drd" and sync.can_join(c, "drd") and not sync.can_join(c, "dh")
-    model.add_history(c, "Útok", "13")
-    assert sync.rolls(c)[0]["value"] == "13" and sync.pending(c) == 1
-    camp["share_hp"] = False
-    assert sync.snapshot(c)["hp"] is None
+    drain(page)
+    t = texts_of(page)
+    assert "Hledat stůl" in t and "Zadat ručně" in t and "Doly pod Černou horou" in t
+    app.ui["join_sel"] = app.ui["tables"][0]
+    app.refresh()
+    t = texts_of(page)
+    assert "Nalezen stůl PJ" in t and "Stejná hra jako tvoje postava" in t
+    btn = next(x for x in walk(page.views) if getattr(x, "data", None) == "primary" and
+               any(getattr(y, "value", "") == "Požádat o vstup" for y in walk(x)))
+    btn.on_click(Ev(btn))
+    drain(page)
+    assert c["campaign"]["status"] == "pending"
+    t = texts_of(page)
+    assert "Čekáš na PJ" in t and "Zrušit žádost" in t
+    uid = next(u for u in state.d["members"] if u != "pj")
+    state.handle("pj", "set_status", {"uid": uid, "status": "approved"})
+    state.handle("pj", "adjust", {"uid": uid, "payload": {"hp": 5, "xp": 150}})
+    state.handle("pj", "message", {"uid": uid, "body": "Všimneš si pečeti."})
+    import asyncio
+    res = asyncio.run(sync.sync_player(app.client(c["campaign"]["server"]), c))
+    asyncio.run(app.after_sync(c, res))
+    drain(page)
     app.go("druzina")
-    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
-    assert "Prokletí Černé věže" in texts and camp["code"] in texts
-    assert click_everything(app, page) > 0
+    drain(page)
+    t = texts_of(page)
+    assert "PJ ti upravil postavu" in t and "Zpráva jen pro tebe" in t and "Všimneš si pečeti." in t
+    assert c["hp"] == 5 and c["xp"] == 150
+    assert click_everything(app, page, rounds=1) > 0
+
+
+def test_manual_invite_and_wizard(make_app, monkeypatch):
+    from app import sync
+    from test_sync import FakeSupabase, SRV
+    srv = FakeSupabase()
+    monkeypatch.setattr(sync, "TRANSPORT", srv)
+    app, page = make_app()
+    # PJ: průvodce vlastním serverem až po pozvánku
+    app.ui.update(new_name="Prokletí Černé věže", new_sys="drd", conn="own", wiz_step=1, wiz_create=True)
+    app.go("pruvodce")
+    for step in (1, 2):
+        assert f"KROK {step} Z 4" in texts_of(page)
+        app.ui["wiz_step"] = step + 1
+        app.refresh()
+    fields = [x for x in walk(page.views) if isinstance(x, ft.TextField)]
+    fields[0].value, fields[1].value = SRV["url"], "sb_secret_nope"
+    verify = next(x for x in walk(page.views) if getattr(x, "data", None) == "secondary" and
+                  any(getattr(y, "value", "") == "Ověřit spojení" for y in walk(x)))
+    verify.on_click(Ev(verify))
+    assert page.dialogs and "tajný" in str([getattr(x, "value", "") for x in walk(page.dialogs[-1])])
+    page.dialogs.clear()
+    fields[1].value = SRV["key"]
+    verify.on_click(Ev(verify))
+    drain(page)
+    t = texts_of(page)
+    assert "Server odpovídá" in t and "Server je zamčený tvým klíčem PJ" in t
+    nxt = next(x for x in walk(page.views) if getattr(x, "data", None) == "primary")
+    nxt.on_click(Ev(nxt))
+    drain(page)
+    assert app.ui["wiz_step"] == 4 and app.camp and app.camp["code"]
+    t = texts_of(page)
+    assert "Server je tvůj. Pozvi hráče" in t and "Tvůj klíč PJ" in t and app.camp["code"] in t
+    assert any(getattr(x, "data", None) == "qr" for x in walk(page.views))
+    camp = app.camp
+    app.open_gm(camp["id"])
+    drain(page)
+    assert "Kód pro hráče" in texts_of(page)
+    # hráč: pozvánka vložená ručně → čeká
+    app2, page2 = make_app()
+    c = model.create_character("drd", "Elwin", "Elf", "Hraničář", [10, 14, 11, 13, 12])
+    app2.add_character(c)
+    app2.take_invite(sync.invite_link(SRV, camp["code"]))
+    app2.open_character(c["id"])
+    app2.go("druzina")
+    assert app2.ui["join_tab"] == "Zadat ručně"
+    go = next(x for x in walk(page2.views) if getattr(x, "data", None) == "primary" and
+              any(getattr(y, "value", "") == "Připojit" for y in walk(x)))
+    go.on_click(Ev(go))
+    drain(page2)
+    assert c["campaign"]["status"] == "pending"
+    # PJ vidí žádost, přijme
+    import asyncio
+    asyncio.run(app.sync_gm_now(camp))
+    app.go("pj_kampan")
+    t = texts_of(page)
+    assert "Žádá o vstup" in t and "Elwin" in t
+    assert click_screen(app, page, "pj_kampan") > 0
+    # druhé zařízení PJ: přihlášení klíčem
+    key = app.settings["servers"][0]["pj_key"]
+    app3, page3 = make_app()
+    app3.go("pj_login")
+    f = [x for x in walk(page3.views) if isinstance(x, ft.TextField)]
+    f[0].value, f[1].value, f[2].value = SRV["url"], SRV["key"], key
+    b = next(x for x in walk(page3.views) if getattr(x, "data", None) == "primary")
+    b.on_click(Ev(b))
+    drain(page3)
+    assert camp["id"] in app3.gm and "Přihlášen jako PJ" in texts_of(page3)

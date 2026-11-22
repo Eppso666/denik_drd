@@ -52,7 +52,12 @@ Android dostane instalační soubor `.apk`, iPhone webovou verzi, kterou si při
   DH dovednostní a charakterové body, tabulky many a magenergie.
 - **Tisk listu postavy** (ikona tiskárny) – uloží HTML, které se v prohlížeči vytiskne nebo uloží jako PDF.
 - **Záloha a obnova** všech postav do souboru (úvodní obrazovka) a připomínka zálohy po 14 dnech.
-- Vše se ukládá **jen v zařízení** (proto zálohuj). Družina a sdílení přes Supabase přijdou v další verzi.
+- Vše se ukládá **jen v zařízení** (proto zálohuj).
+- **Stůl PJ** (úvod → Vedu hru): Pán jeskyně vede kampaň bez postavy – Kampaň (přijímání hráčů, zámek, úprava
+  životů, zkušeností a předmětů hráčů), Souboj (jedna iniciativa pro hráče i nestvůry), Bestiář PJ, Nástroje
+  (zkušenosti za boj) a Poznámky (tajné poznámky, připravené mapy, tajná zpráva hráči). Hráč nic z toho nevidí.
+- **Družina** (karta na postavě): připojení ke stolu PJ nebo pozvánkou na server PJ, čekání na schválení,
+  úpravy a zprávy od PJ, hody družiny, mapy od PJ do Deníku.
 
 ## Jak dostat aplikaci do telefonu
 
@@ -138,15 +143,30 @@ v aplikaci řešené rozumným výchozím nastavením a dají se upravit ručně
 Písma (Cinzel, IM Fell English SC, Alegreya Sans) mají licenci SIL Open Font License a stahují se při sestavení.
 Bez nich aplikace použije výchozí písmo zařízení.
 
-## Družina – server Supabase
+## Družina – propojení hráčů a PJ
 
-- Projekt: `https://aocrwaogxwjntcenumbb.supabase.co`. URL a **publishable key** jsou v `src/app/config.py`
-  – smí být veřejně, data chrání pravidla přístupu (RLS). **Secret key a heslo k databázi nikdy do repozitáře.**
-- Databáze: celý skript `supabase/schema.sql` se spustí v Supabase (SQL Editor → New query → Run).
-  Jde spustit i opakovaně. Vytvoří tabulky `campaigns`, `members`, `member_sheets`, `rolls`, `shared_images`,
-  pohled `rolls_feed`, funkce `create_campaign` / `join_campaign`, úložiště `campaign-images` a Realtime.
-- Přihlášení je anonymní: Authentication → Sign In / Providers → **Allow anonymous sign-ins** zapnout.
-- Kdo co vidí: kampaň a členy jen členové; celý deník jen hráč a PJ; skryté hody jen PJ (ostatní vidí
-  „Skrytý hod – jen pro PJ“); obrázky nahrává jen PJ. Kampaň patří k jedné hře (DrD / DH).
-- Klient: `src/app/sync.py` (REST přes urllib, ve webové verzi přes fetch); synchronizace každých 6 s
-  při otevřené postavě v kampani. Testy proti falešnému serveru: `tests/test_sync.py`.
+Způsob propojení volí PJ při zakládání kampaně (`src/app/ui/propojeni.py`):
+
+- **U stolu** (`src/app/stul.py`): telefon PJ spustí malý server v místní síti (port 47821), hráči na stejné
+  Wi-Fi (nebo na hotspotu telefonu PJ) ho najdou tlačítkem *Hledat stůl* nebo zadají čtyřmístný kód stolu.
+  Bez internetu a bez účtů, data jsou jen v telefonech u stolu. **Jen v aplikaci (Android, PC)** – prohlížeč
+  spojení v místní síti z https stránky nepovolí, takže webová verze (iPhone) u stolu hrát neumí.
+- **Vlastní server PJ**: každý PJ si průvodcem ve 4 krocích založí bezplatný Supabase (projekt Free),
+  spustí skript databáze (`supabase/schema.sql`, v aplikaci zkopíruje tlačítko) a zapne
+  *Allow anonymous sign-ins*. Aplikace server zamkne **klíčem PJ** (`DRAK-XXXX-XXXX`) – kampaně pak zakládá
+  jen PJ a stejným klíčem se PJ přihlásí na dalším zařízení. Hráči dostanou pozvánku jako QR nebo odkaz
+  (adresa serveru + publishable key + kód kampaně). Free projekt se po týdnu bez hraní uspí – aplikace to
+  pozná a ukáže, jak ho probudit.
+- **Server aplikace** (placený Supabase pro všechny) je zatím jen v nabídce jako „připravujeme“.
+
+Do aplikace patří jen **Project URL a publishable key** – aplikace tajný klíč (`sb_secret_…`, service_role)
+odmítne. Schéma verze 2 přidává schvalování hráčů (`members.status`), zámek kampaně, úpravy od PJ
+(`adjustments`), tajné zprávy (`messages`), poznámky PJ (`gm_notes`) a vlastníka serveru (`claim_server`).
+Skript jde spustit znovu i přes verzi 1. Starý projekt z `src/app/config.py` zůstává pro kampaně z verze 0.12.
+
+Kdo co vidí: kampaň a členy jen přijatí členové (čekající hráč jen sebe); celý deník jen hráč a PJ; skryté hody,
+poznámky PJ a úpravy jen PJ (úpravu a zprávu i hráč, kterému patří); obrázky nahrává jen PJ. Obsah příruček PJ
+není v aplikaci ani v repozitáři – PJ si ho nahraje jako balíček (JSON) jen do svého zařízení.
+
+Testy: `tests/test_sync.py` (falešný Supabase s pravidly jako ve schématu, stav stolu, skutečný server stolu
+na 127.0.0.1), `tests/test_ui.py` (všechny obrazovky Stolu PJ, průvodce, přihlášení PJ klíčem, hráč).

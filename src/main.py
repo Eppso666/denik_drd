@@ -27,7 +27,22 @@ async def main(page: ft.Page) -> None:
     app = App(page, set(fonts))
     page.on_view_pop = app.on_view_pop
     await app.load()
+    app.take_invite(_invite_from(page))
     app.render()
+
+
+def _invite_from(page: ft.Page) -> str | None:
+    """Webová verze otevřená z QR pozvánky (…/?pozvanka=…)."""
+    for getter in (lambda: page.query.get("pozvanka"), lambda: page.route, lambda: getattr(page, "url", None)):
+        try:
+            val = getter()
+        except Exception:
+            continue
+        if val and "pozvanka=" in str(val):
+            return str(val)
+        if val and getter is not None and len(str(val)) > 40 and "/" not in str(val):
+            return "pozvanka=" + str(val)
+    return None
 
 
 if __name__ == "__main__":

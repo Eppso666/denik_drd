@@ -200,7 +200,7 @@ class Kit:
         core = ft.Row([
             self.square_button(ft.Icons.REMOVE, on_minus, "Snížit"),
             ft.Container(self.text(value, size=21, weight=ft.FontWeight.BOLD, head=True, color=value_color,
-                                   align=ft.TextAlign.CENTER), width=56 if len(str(value)) <= 3 else 76,
+                                   align=ft.TextAlign.CENTER), width=max(56, 14 * len(str(value)) + 8),
                          alignment=ft.Alignment.CENTER),
             self.square_button(ft.Icons.ADD, on_plus, "Zvýšit"),
         ], spacing=4, tight=True)
@@ -260,6 +260,80 @@ class Kit:
             self.bar(float(value), float(maximum), color, dark),
         ], spacing=6)
 
+    # --- prvky Stolu PJ a propojení (grafický návrh 22. 11.) -------------------
+    def avatar(self, initials: str, size: int = 44) -> ft.Control:
+        """Kulatý odznak s iniciálami (hráči na Stole PJ)."""
+        return ft.Container(
+            self.text(initials, size=round(size * .36), weight=ft.FontWeight.BOLD, head=True), width=size,
+            height=size, alignment=ft.Alignment.CENTER, border_radius=ft.BorderRadius.all(size),
+            gradient=ft.RadialGradient(colors=[self.l.card2, self.l.bg], center=ft.Alignment(0, -0.2)),
+            border=ft.Border.all(3 if size >= 50 else 2, self.l.orn),
+            shadow=[ft.BoxShadow(blur_radius=0, spread_radius=2, color=self.l.bg),
+                    ft.BoxShadow(blur_radius=14, color=self.l.glow)],
+        )
+
+    def pj_badge(self) -> ft.Control:
+        return ft.Container(ft.Text("PJ", size=11, weight=ft.FontWeight.BOLD, color="#ffffff"),
+                            bgcolor=self.l.accent, border=ft.Border.all(1, self.l.orn),
+                            border_radius=ft.BorderRadius.all(4), padding=ft.Padding.symmetric(horizontal=8, vertical=3))
+
+    def note(self, text: str, icon=ft.Icons.LOCK_OUTLINE) -> ft.Control:
+        """Poznámka v rámečku (kdo co vidí, tipy)."""
+        return ft.Container(
+            ft.Row([ft.Icon(icon, size=18, color=self.l.orn), self.muted(text, size=13, expand=True)], spacing=10,
+                   vertical_alignment=ft.CrossAxisAlignment.START),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=10), bgcolor=self.l.bg,
+            border=ft.Border.all(1, self.l.frame), border_radius=ft.BorderRadius.all(self.l.radius))
+
+    def link(self, label: str, on_click) -> ft.Control:
+        """Odkaz v nadpisu oddílu („Vše ›“, „Přidat ›“)."""
+        return ft.Container(ft.Row([self.text(label, size=14, weight=ft.FontWeight.BOLD, head=True, color=self.l.orn),
+                                    ft.Icon(ft.Icons.CHEVRON_RIGHT, size=16, color=self.l.orn)], spacing=2, tight=True),
+                            on_click=on_click, ink=True, padding=ft.Padding.symmetric(vertical=10, horizontal=4))
+
+    def switch_row(self, label: str, value: bool, on_change, icon=None) -> ft.Control:
+        parts: list[ft.Control] = []
+        if icon is not None:
+            parts.append(ft.Icon(icon, size=18, color=self.l.orn))
+        parts += [self.text(label, size=15, expand=True),
+                  ft.Switch(value=bool(value), on_change=on_change, active_color=self.l.hi)]
+        return ft.Row(parts, spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    def numbered(self, items: list[str]) -> ft.Control:
+        rows = []
+        for i, t in enumerate(items):
+            rows.append(ft.Row([
+                ft.Container(self.text(str(i + 1), size=13, weight=ft.FontWeight.BOLD, head=True), width=26, height=26,
+                             alignment=ft.Alignment.CENTER, border_radius=ft.BorderRadius.all(13), bgcolor=self.l.card2,
+                             border=ft.Border.all(1, self.l.orn)),
+                ft.Text(spans=_bold_spans(t, self.l.ink), size=15, expand=True, color=self.l.ink),
+            ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.START))
+        return ft.Column(rows, spacing=14)
+
+    def steps_bar(self, cur: int, total: int = 4) -> ft.Control:
+        bars = [ft.Container(height=6, expand=1, border_radius=ft.BorderRadius.all(3),
+                             bgcolor=self.l.accent2 if i <= cur else self.l.card2,
+                             shadow=self.glow(8) if i == cur else None) for i in range(1, total + 1)]
+        return ft.Column([self.muted(f"KROK {cur} Z {total}", size=12, weight=ft.FontWeight.BOLD),
+                          ft.Row(bars, spacing=6)], spacing=6)
+
+    def check(self, text: str, ok: bool = True, sub: str | None = None, bad: bool = False) -> ft.Control:
+        col = self.l.bad if bad else (self.l.ok if ok else self.l.muted)
+        icon = ft.Icons.CLOSE if bad else (ft.Icons.CHECK if ok else ft.Icons.CIRCLE_OUTLINED)
+        body: list[ft.Control] = [self.text(text, size=15, weight=ft.FontWeight.BOLD)]
+        if sub:
+            body.append(self.muted(sub, size=13))
+        return ft.Row([ft.Icon(icon, size=20, color=col), ft.Column(body, spacing=1, expand=True)], spacing=10,
+                      vertical_alignment=ft.CrossAxisAlignment.START)
+
+    def field(self, label: str, value: str = "", mono: bool = False, multiline: bool = False,
+              password: bool = False) -> ft.TextField:
+        return ft.TextField(label=label, value=value, multiline=multiline, min_lines=3 if multiline else None,
+                            max_lines=6 if multiline else 1, border_color=self.l.frame, focused_border_color=self.l.orn,
+                            color=self.l.ink, cursor_color=self.l.orn, filled=True, fill_color=self.l.bg,
+                            text_size=14 if mono else 16, password=password, can_reveal_password=password,
+                            border_radius=self.l.radius)
+
     def empty(self, text: str) -> ft.Control:
         return ft.Container(self.muted(text, size=14, align=ft.TextAlign.CENTER), padding=ft.Padding.all(20),
                             alignment=ft.Alignment.CENTER)
@@ -287,3 +361,13 @@ def matches(query: str, *texts) -> bool:
         return True
     hay = fold(" ".join(str(t) for t in texts if t))
     return all(w in hay for w in fold(query).split())
+
+
+def _bold_spans(text: str, color: str) -> list[ft.TextSpan]:
+    """„Klikni na <b>Run</b>“ → úseky s tučným písmem."""
+    out: list[ft.TextSpan] = []
+    for i, part in enumerate(str(text).replace("</b>", "<b>").split("<b>")):
+        if part:
+            out.append(ft.TextSpan(part, style=ft.TextStyle(weight=ft.FontWeight.BOLD if i % 2 else None,
+                                                             color=color)))
+    return out
