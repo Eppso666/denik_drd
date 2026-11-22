@@ -7,29 +7,43 @@ from .. import model
 from ..rules import dh, drd
 from ..rules.common import d, fmt, open_d6, roll_expr
 from .character import rollable_abilities
+from . import dice_shapes as shapes
 from .kit import column
 
 
-def _push(app, label: str, value, detail: str, color: str) -> None:
+def _push(app, label: str, value, detail: str, color: str, die: str = "6", head: str | None = None,
+          free: bool = False) -> None:
+    """Výsledek hodu: uloží se do historie a ukáže v kartě výsledku s tvarem hozené kostky."""
     c = app.char
     app.ui["dice_last"] = {"label": label, "value": str(value), "detail": detail, "color": color,
-                           "char": c["id"]}
+                           "char": c["id"], "die": die, "head": head, "free": free}
     model.add_history(c, label.capitalize(), str(value))
     app.save(c)
     app.refresh()
 
 
 def _result_card(app) -> ft.Control:
+    """Karta výsledku podle návrhu: vlevo kostka s hozeným číslem, vpravo co a jak to dopadlo."""
     k = app.kit
     l = app.look
     last = app.ui.get("dice_last")
     if not last or last.get("char") != app.char["id"]:
-        last = {"label": "VYBER A HOĎ", "value": "–", "detail": "Zvol, na co házíš", "color": l.ink}
-    return k.card(ft.Column([
-        k.muted(last["label"].upper(), size=12, weight=ft.FontWeight.BOLD),
-        k.text(last["value"], size=54, weight=ft.FontWeight.BOLD, head=True, color=last["color"]),
-        k.muted(last["detail"], size=14, align=ft.TextAlign.CENTER),
-    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2), padding=16)
+        return k.framed(ft.Row([
+            shapes.die(app, "20", None, 96),
+            ft.Column([k.muted("VYBER A HOĎ", size=12, weight=ft.FontWeight.BOLD),
+                       k.text("–", size=34, weight=ft.FontWeight.BOLD, head=True),
+                       k.muted("Zvol, na co házíš", size=12)], spacing=2, expand=True),
+        ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER), padding=14)
+    if last.get("head"):
+        big = k.text(last["head"], size=22, weight=ft.FontWeight.BOLD, head=True, color=last["color"])
+    else:
+        big = k.text(last["value"], size=34, weight=ft.FontWeight.BOLD, head=True, color=last["color"])
+    return k.framed(ft.Row([
+        shapes.die(app, last.get("die", "6"), last["value"], 96, sel=True),
+        ft.Column([k.muted(last["label"].upper() if last.get("head") else last["label"], size=13,
+                           weight=ft.FontWeight.BOLD if last.get("head") else None),
+                   big, k.muted(last["detail"], size=12)], spacing=2, expand=True),
+    ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER), padding=14, glow=True)
 
 
 def _history(app) -> ft.Control:
@@ -37,46 +51,55 @@ def _history(app) -> ft.Control:
     hist = app.char.get("history", [])[:5]
     if not hist:
         return ft.Container()
-    return ft.Column([k.section("Historie"),
+    return ft.Column([k.section("Historie", icon=ft.Icons.HOURGLASS_EMPTY),
                       k.list_card([k.row_item(h["label"], h["value"]) for h in hist])], spacing=8)
 
 
 def _free_dice(app, sides_list: list[str], count: int = 1) -> ft.Control:
+    """Mřížka kostek ve tvaru skutečných kostek; poslední hozená svítí."""
     k = app.kit
     l = app.look
+    last = app.ui.get("dice_last") or {}
+    last_die = last.get("die") if last.get("char") == app.char["id"] and last.get("free") else None
 
-    def die(name: str, height: int = 76, special: bool = False) -> ft.Control:
+    def tile(name: str, special: bool = False) -> ft.Control:
+        kind = shapes.kind_of(name)
+
         def roll(e):
             if name == "k6+":
                 rolls = open_d6()
                 _push(app, "k6+", sum(rolls), "Hody: " + " + ".join(map(str, rolls)) if len(rolls) > 1 else "Jeden hod",
-                      l.hi)
+                      l.hi, die="6+", free=True)
             elif name == "k%":
-                _push(app, "k%", d(100), "Procentový hod (1–100)", l.hi)
+                _push(app, "k%", d(100), "Procentový hod (1–100)", l.hi, die="%", free=True)
             else:
                 n = int(name[1:])
                 rolls = [d(n) for _ in range(count)]
-                _push(app, f"{count}{name}" if count > 1 else name, sum(rolls),
-                      "Hody: " + " + ".join(map(str, rolls)) if count > 1 else f"Rozsah 1–{n}", l.hi)
+                _push(app, f"{count}× {name}", sum(rolls),
+                      "Hody: " + " + ".join(map(str, rolls)) if count > 1 else
+                      "Hozeno právě teď · klepni na kostku a hoď znovu", l.hi, die=kind, free=True)
+        sel = last_die == kind and (name in ("k6+", "k%")) == (kind in ("6+", "%"))
         sub = {"k6+": "šestka se hází znovu", "k%": "procentový hod"}.get(name, f"1–{name[1:]}")
         return ft.Container(
-            ft.Column([k.text(name, size=26 if not special else 22, weight=ft.FontWeight.BOLD, head=True,
-                              align=ft.TextAlign.CENTER, color=l.hi if special else None),
+            ft.Column([shapes.die(app, kind, None, 58, sel=sel),
+                       k.text(name, size=18, weight=ft.FontWeight.BOLD, head=True, align=ft.TextAlign.CENTER,
+                              color=l.orn if special else None),
                        k.muted(sub, size=11, align=ft.TextAlign.CENTER)],
-                      spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                      alignment=ft.MainAxisAlignment.CENTER),
-            height=height, expand=1, alignment=ft.Alignment.CENTER, bgcolor=l.card2 if special else l.card,
-            border=ft.Border.all(1, l.hi if special else l.border), border_radius=ft.BorderRadius.all(l.radius),
-            on_click=roll, ink=True)
+                      spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=1, padding=ft.Padding.only(top=10, bottom=8, left=4, right=4),
+            gradient=k.grad(l.card2, l.card), border_radius=ft.BorderRadius.all(l.radius),
+            border=ft.Border.all(2, l.orn) if sel else ft.Border.all(1, l.frame if special else l.border),
+            shadow=k.glow(14) if sel else None, on_click=roll, ink=True, data="die:" + name, tooltip=f"Hodit {name}")
 
     plain = [n for n in sides_list if n not in ("k6+", "k%")]
     special = [n for n in sides_list if n in ("k6+", "k%")]
     rows: list[ft.Control] = []
-    per_row = 3 if len(plain) > 4 else max(1, len(plain))
-    for i in range(0, len(plain), per_row):
-        rows.append(ft.Row([die(n) for n in plain[i:i + per_row]], spacing=8))
+    for i in range(0, len(plain), 3):
+        part = plain[i:i + 3]
+        rows.append(ft.Row([tile(n) for n in part] + [ft.Container(expand=1)] * (3 - len(part)) if len(plain) > 3
+                           else [tile(n) for n in part], spacing=8))
     if special:
-        rows.append(ft.Row([die(n, height=60, special=True) for n in special], spacing=8))
+        rows.append(ft.Row([tile(n, special=True) for n in special], spacing=8))
     return ft.Column(rows, spacing=8)
 
 
@@ -104,7 +127,7 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
         rolls = open_d6() if exploding else [d(6)]
         total = uc + sum(rolls) + pen
         _push(app, f"Útok · {w['name']}", total, f"ÚČ {uc} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})" +
-              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi)
+              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi, die="6+" if exploding else "6")
 
     out = rows + [
         k.muted(f"Útok = ÚČ + {'k6+ (šestka se hází znovu)' if exploding else 'k6'}. Obránce hází OČ + "
@@ -170,7 +193,7 @@ def kostky(app):
             mod = f" {fmt(adv * dh.ADVANTAGE)}" if adv else ""
             _push(app, f"Ověření · {name}", total,
                   f"k10 ({kk}) {fmt(b)} {attr}" + (f" + stupeň {lvl}" if lvl else "") + mod +
-                  f" – {'Úspěch' if ok else 'Neúspěch'} (obtížnost {diff})", l.ok if ok else l.bad)
+                  f" – {'Úspěch' if ok else 'Neúspěch'} (obtížnost {diff})", l.ok if ok else l.bad, die="10")
         body.append(k.button(f"Hodit k10 · {sel}", roll_skill))
 
     elif tab == "Zbraň":
@@ -187,23 +210,19 @@ def kostky(app):
             if sel not in names:
                 sel = names[0]
             pm = app.ui.get("dice_pm", 0)
-            for a in abil:
-                body.append(k.card(ft.Row([
-                    ft.Column([k.text(a["name"], size=15, weight=ft.FontWeight.W_600),
-                               k.muted(a["kind"], size=12)], spacing=1, expand=True),
-                    k.text(f"{a['chance']} %", size=18, weight=ft.FontWeight.BOLD, head=True)]),
-                    accent=a["name"] == sel, padding=12,
-                    on_click=lambda e, n=a["name"]: app.go("kostky", dice_ability=n)))
+            rows = [_ability_row(app, a, a["name"] == sel) for a in abil]
+            body.append(ft.Column(rows, spacing=6))
             a = next(a for a in abil if a["name"] == sel)
             chance = max(1, min(99, a["chance"] + pm))
-            body.append(k.stepper(f"{fmt(pm)} %", lambda e: app.go("kostky", dice_pm=pm - 5),
-                                  lambda e: app.go("kostky", dice_pm=pm + 5), label="Úprava od PJ"))
+            body.append(_pm_card(app, pm, a["chance"]))
 
             def roll_pct(e):
                 p, _ = drd.percent(chance)
                 ok, txt = drd.pct_text(p, chance, c["level"])
-                _push(app, a["name"], p, txt, l.ok if ok else l.bad)
-            body.append(k.button(f"Hodit k% · šance {chance} %", roll_pct))
+                head, _, rest = txt.partition(" – ")
+                _push(app, a["name"], p, rest or txt, l.ok if ok else l.bad, die="%", head=head)
+            body.append(k.button(f"Hodit k% · {a['name']} · {chance} %", roll_pct, icon=ft.Icons.CASINO_OUTLINED,
+                                 height=54))
 
     elif tab == "Past":
         ti = app.ui.get("dice_trap_attr", "OBR")
@@ -220,7 +239,7 @@ def kostky(app):
             b = drd.bonus(c["attrs"][drd.ATTRS.index(ti)])
             kk, total, ok = drd.trap(b, danger)
             _push(app, f"Past · {ti}", total, f"k10 ({kk}) {fmt(b)} – {'štěstí, odolal' if ok else 'smůla, past zasáhla'}"
-                  f" (nebezpečnost {danger})", l.ok if ok else l.bad)
+                  f" (nebezpečnost {danger})", l.ok if ok else l.bad, die="10")
         body.append(k.button("Hodit proti pasti (k10)", roll_trap))
 
     else:
@@ -230,16 +249,138 @@ def kostky(app):
                      k.muted("Dračí Hlídka: k6 pro boj, k10 pro dovednosti, kouzla a pasti. Procentový hod se nepoužívá.")]
         else:
             count = app.ui.get("dice_count", 1)
-            body += [k.stepper(f"{count}×", lambda e: app.go("kostky", dice_count=max(1, count - 1)),
-                               lambda e: app.go("kostky", dice_count=min(10, count + 1)), label="Počet kostek",
-                               sub="platí pro k4 až k20"),
+            body += [k.framed(k.stepper(f"{count}×", lambda e: app.go("kostky", dice_count=max(1, count - 1)),
+                                        lambda e: app.go("kostky", dice_count=min(10, count + 1)), label="Počet kostek",
+                                        sub="platí pro k4 až k20"), padding=ft.Padding.symmetric(horizontal=14, vertical=10)),
                      _free_dice(app, r.DICE, count),
                      k.muted("Dračí doupě 1.6: k6+ v boji, k10 proti pastem, k% u schopností. "
                              "Ostatní kostky pro zranění zbraní, tabulky a hody PJ.")]
 
-    controls = [_result_card(app), k.pills(tabs, tab, lambda v: app.go("kostky", dice_tab=v), equal=True),
+    controls = [k.pills(tabs, tab, lambda v: app.go("kostky", dice_tab=v), equal=True), _result_card(app),
                 *body, _history(app)]
     return Screen("Kostky", [column(controls)])
+
+
+def _ability_row(app, a: dict, sel: bool) -> ft.Control:
+    """Schopnost v seznamu; vybraná svítí (plný rámeček, barevné pozadí, proužek, fajfka, VYBRÁNO)."""
+    k = app.kit
+    l = app.look
+    pick = lambda e, n=a["name"]: app.go("kostky", dice_ability=n)
+    if sel:
+        body = ft.Row([
+            ft.Container(ft.Icon(ft.Icons.CHECK, size=16, color=l.bg), width=26, height=26, bgcolor=l.orn,
+                         border_radius=ft.BorderRadius.all(13), alignment=ft.Alignment.CENTER),
+            ft.Column([k.text(a["name"], size=17, weight=ft.FontWeight.BOLD, color="#ffffff"),
+                       k.text(f"VYBRÁNO · {a['kind']}", size=12, weight=ft.FontWeight.BOLD, color=l.orn)],
+                      spacing=1, expand=True),
+            k.text(f"{a['chance']} %", size=24, weight=ft.FontWeight.BOLD, head=True, color="#ffffff"),
+        ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        return ft.Container(
+            ft.Stack([ft.Container(body, padding=ft.Padding.only(left=18, right=14, top=12, bottom=12)),
+                      ft.Container(width=5, bgcolor=l.orn, border_radius=ft.BorderRadius.all(3), left=0, top=6,
+                                   bottom=6)]),
+            border=ft.Border.all(2, l.orn), border_radius=ft.BorderRadius.all(l.radius),
+            gradient=ft.LinearGradient(begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
+                                       colors=[l.accent, l.card2], stops=[0.0, 0.75]),
+            shadow=k.glow(18), on_click=pick, ink=True, data="ability:" + a["name"])
+    return ft.Container(ft.Row([
+        ft.Container(width=26, height=26, border=ft.Border.all(2, l.frame), border_radius=ft.BorderRadius.all(13)),
+        ft.Column([k.text(a["name"], size=16, weight=ft.FontWeight.BOLD), k.muted(a["kind"], size=12)], spacing=1,
+                  expand=True),
+        k.text(f"{a['chance']} %", size=18, weight=ft.FontWeight.BOLD, head=True),
+    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.Padding.symmetric(horizontal=14, vertical=11), bgcolor=l.card, border=ft.Border.all(1, l.border),
+        border_radius=ft.BorderRadius.all(l.radius), opacity=0.8, on_click=pick, ink=True, data="ability:" + a["name"])
+
+
+def _pm_card(app, pm: int, base: int) -> ft.Control:
+    """Úprava od PJ: −/+ po 5 % a pole, do kterého jde číslo napsat (s rychlými volbami a výpočtem šance)."""
+    k = app.kit
+    l = app.look
+    calc = ft.Text(size=14, color=l.muted)
+    sub = k.muted("klepni na číslo a napiš", size=12)
+
+    def chance_of(v: int) -> int:
+        return max(1, min(99, base + v))
+
+    def show_calc(v: int) -> None:
+        sign = "−" if v < 0 else "+"
+        calc.spans = [ft.TextSpan("Šance "), ft.TextSpan(f"{base} %", ft.TextStyle(weight=ft.FontWeight.BOLD, color=l.ink)),
+                      ft.TextSpan(f" {sign} "),
+                      ft.TextSpan(f"{abs(v)} %", ft.TextStyle(weight=ft.FontWeight.BOLD, color=l.bad if v < 0 else l.ok)),
+                      ft.TextSpan(" = "),
+                      ft.TextSpan(f"{chance_of(v)} %", ft.TextStyle(weight=ft.FontWeight.BOLD, size=20, color=l.warn,
+                                                                     font_family=app.kit.hf))]
+
+    def parse(text: str) -> int | None:
+        t = str(text or "").replace("−", "-").replace("%", "").replace(" ", "").replace(",", ".")
+        try:
+            return max(-100, min(100, int(float(t or 0))))
+        except ValueError:
+            return None
+
+    field = ft.TextField(value=fmt(pm), width=96, height=48, text_align=ft.TextAlign.CENTER, suffix="%",
+                         keyboard_type=ft.KeyboardType.NUMBER, text_size=22, border_color=l.frame,
+                         focused_border_color=l.orn, color=l.ink, cursor_color=l.orn, filled=True, fill_color=l.bg,
+                         border_radius=l.radius, content_padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                         text_style=ft.TextStyle(font_family=app.kit.hf,
+                                                 weight=ft.FontWeight.BOLD), data="pm")
+
+    def commit(e=None):
+        v = parse(field.value)
+        if v is None:
+            field.value = fmt(pm)
+            app.toast("Napiš číslo od −100 do +100.")
+            try:
+                field.update()
+            except Exception:
+                pass
+            return
+        if v != pm:
+            app.go("kostky", dice_pm=v)
+
+    def focus(e):
+        extra.visible = True
+        sub.value = "píšeš vlastní číslo · tlačítka −/+ dál mění po 5 %"
+        try:
+            extra.update()
+            sub.update()
+        except Exception:
+            pass
+
+    def typed(e):
+        v = parse(field.value)
+        if v is not None:
+            show_calc(v)
+            try:
+                calc.update()
+            except Exception:
+                pass
+
+    field.on_focus = focus
+    field.on_change = typed
+    field.on_submit = commit
+    field.on_blur = commit
+    show_calc(pm)
+    chips = ft.Row([ft.Container(k.text(lbl, size=14, weight=ft.FontWeight.BOLD,
+                                        color="#ffffff" if v == pm else None),
+                                 padding=ft.Padding.symmetric(horizontal=10, vertical=9),
+                                 bgcolor=l.accent if v == pm else l.card,
+                                 border=ft.Border.all(1, l.orn if v == pm else l.border),
+                                 border_radius=ft.BorderRadius.all(l.radius),
+                                 on_click=lambda e, v=v: app.go("kostky", dice_pm=v), ink=True)
+                    for lbl, v in (("−50", -50), ("−35", -35), ("−20", -20), ("−10", -10), ("0", 0), ("+10", 10),
+                                   ("+20", 20), ("+50", 50))], spacing=6, wrap=True, run_spacing=6)
+    extra = ft.Column([chips, ft.Row([calc, ft.Container(expand=True), k.muted("rozsah −100 až +100", size=12)],
+                                     vertical_alignment=ft.CrossAxisAlignment.CENTER)],
+                      spacing=10, visible=False)
+    head = ft.Row([
+        ft.Column([k.text("Úprava od PJ", size=16, weight=ft.FontWeight.BOLD), sub], spacing=2, expand=True),
+        k.square_button(ft.Icons.REMOVE, lambda e: app.go("kostky", dice_pm=max(-100, pm - 5)), "Snížit o 5 %"),
+        field,
+        k.square_button(ft.Icons.ADD, lambda e: app.go("kostky", dice_pm=min(100, pm + 5)), "Zvýšit o 5 %"),
+    ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    return k.framed(ft.Column([head, extra], spacing=10), padding=ft.Padding.symmetric(horizontal=14, vertical=10))
 
 
 # --- souboj --------------------------------------------------------------------

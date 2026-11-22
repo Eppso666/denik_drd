@@ -703,3 +703,87 @@ def test_manual_invite_and_wizard(make_app, monkeypatch):
     b.on_click(Ev(b))
     drain(page3)
     assert camp["id"] in app3.gm and "Přihlášen jako PJ" in texts_of(page3)
+
+
+# ------------------------------------------------------------------------- úpravy 22. 11.
+
+def test_alignment_dialog_and_table(make_app):
+    from app.rules import drd
+    from app.ui import character
+    import random
+    assert drd.ALIGN_TABLE["Kroll"][5] == "ZmZ" and drd.ALIGN_TABLE["Elf"][7] == "N"
+    assert all(len(v) == 10 for v in drd.ALIGN_TABLE.values())
+    assert drd.roll_alignment("Kroll", random.Random(1))[1] in {a[0] for a in drd.ALIGNMENTS}
+    app, page = make_app()
+    c = model.create_character("drd", "Luke", "Kroll", "Válečník", [20, 8, 20, 2, 8])
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    assert "PŘESVĚDČENÍ" in texts_of(page) and "Nezvoleno" in texts_of(page)
+    character.alignment_dialog(app, c)
+    d = page.dialogs[-1]
+    roll = next(x for x in walk(d) if getattr(x, "data", None) == "secondary")
+    roll.on_click(Ev(roll))
+    t = [str(getattr(x, "value", "")) for x in walk(d)]
+    assert any(v.startswith("Padlo ") for v in t)
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    assert c["alignment"] in drd.ALIGN_TABLE["Kroll"]
+    assert drd.alignment(c["alignment"])[1] in texts_of(page)
+
+
+def test_item_description_and_detail(make_app):
+    from app.ui import inventory
+    app, page = make_app()
+    c = model.create_character("drd", "Kira", "Kudůk", "Zloděj", [5, 16, 10, 12, 14])
+    app.add_character(c)
+    app.open_character(c["id"])
+    app.go("batoh")
+    inventory.edit_item(app, None)
+    d = page.dialogs[-1]
+    fields = {x.label: x for x in walk(d) if isinstance(x, ft.TextField)}
+    assert "Popis" in fields and "SZ" not in fields
+    fields["Název"].value = "Dýka z Beliendu"
+    fields["Popis"].value = "Stříbrná čepel s runou."
+    dd = next(x for x in walk(d) if isinstance(x, ft.Dropdown))
+    dd.value = "Zbraň"
+    dd.on_select(Ev(dd))
+    assert "SZ" in {x.label for x in walk(d) if isinstance(x, ft.TextField)}
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    it = c["items"][-1]
+    assert it["desc"] == "Stříbrná čepel s runou." and it["category"] == "Zbraň"
+    assert "Stříbrná čepel s runou." in texts_of(page)
+    inventory.item_detail(app, it)
+    t = [str(getattr(x, "value", "")) for x in walk(page.dialogs[-1])]
+    assert "POPIS" in t and "Stříbrná čepel s runou." in t
+
+
+def test_dice_shapes_ability_and_manual_pm(make_app):
+    from app.ui import dice_shapes
+    app, page = make_app()
+    c = model.create_character("drd", "Kira", "Kudůk", "Zloděj", [5, 16, 10, 12, 14])
+    app.add_character(c)
+    app.open_character(c["id"])
+    assert dice_shapes.kind_of("k20") == "20" and dice_shapes.kind_of("k%") == "%" and dice_shapes.kind_of("3k6") == "6"
+    assert dice_shapes.svg("12", app.look).startswith(b"<svg")
+    app.go("kostky", dice_tab="Kostky")
+    die = next(x for x in walk(page.views) if getattr(x, "data", None) == "die:k20")
+    die.on_click(Ev(die))
+    drain(page)
+    assert app.ui["dice_last"]["die"] == "20" and app.ui["dice_last"]["free"]
+    app.go("kostky", dice_tab="Schopnost")
+    rows = [x for x in walk(page.views) if str(getattr(x, "data", "")).startswith("ability:")]
+    rows[1].on_click(Ev(rows[1]))
+    drain(page)
+    assert any(str(getattr(x, "value", "")).startswith("VYBRÁNO") for x in walk(page.views))
+    pm = next(x for x in walk(page.views) if isinstance(x, ft.TextField) and x.data == "pm")
+    pm.value = "−35"
+    pm.on_submit(Ev(pm))
+    drain(page)
+    assert app.ui["dice_pm"] == -35
+    btn = [x for x in walk(page.views) if getattr(x, "data", None) == "primary"][-1]
+    assert any("Hodit k%" in str(getattr(y, "value", "")) for y in walk(btn))
+    btn.on_click(Ev(btn))
+    drain(page)
+    assert app.ui["dice_last"]["die"] == "%" and app.ui["dice_last"]["head"]

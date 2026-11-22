@@ -211,6 +211,7 @@ def postava(app):
     plus = comp_ui.add_button(app, c)
 
     controls = [
+        *([alignment_card(app, c)] if not is_dh else []),
         k.card(ft.Column(gauges, spacing=10)),
         druzina.status_card(app, c),
         k.section("Vlastnosti", plus, icon=ft.Icons.AUTO_AWESOME),
@@ -230,6 +231,115 @@ def postava(app):
                              on_click=lambda e: edit_character(app))]
     body = [banner(app, header), *[ft.Container(x, padding=ft.Padding.symmetric(horizontal=16)) for x in controls]]
     return Screen(r.NAME, [column(body, padding=0)], actions=actions)
+
+
+def _abbr(app, code: str, on: bool = False) -> ft.Control:
+    l = app.look
+    return ft.Container(app.kit.text(code, size=13, weight=ft.FontWeight.BOLD, head=True,
+                                     color="#ffffff" if on else l.orn, align=ft.TextAlign.CENTER),
+                        width=46, padding=ft.Padding.symmetric(vertical=3), bgcolor=l.accent if on else None,
+                        border=ft.Border.all(1, l.orn), border_radius=ft.BorderRadius.all(4),
+                        alignment=ft.Alignment.CENTER)
+
+
+def alignment_card(app, c: dict) -> ft.Control:
+    """Přesvědčení pod jménem postavy (DrD 1.6, podle grafického návrhu)."""
+    k = app.kit
+    l = app.look
+    a = drd.alignment(c.get("alignment"))
+    name, desc, code = (a[1], a[2], a[0]) if a else ("Nezvoleno", "Klepni na tužku – vyber, nebo hoď k10 podle rasy.",
+                                                      "–")
+    return k.framed(ft.Row([
+        ft.Icon(ft.Icons.BALANCE, size=26, color=l.orn),
+        ft.Column([k.text("PŘESVĚDČENÍ", size=11, weight=ft.FontWeight.BOLD, color=l.muted),
+                   k.text(name, size=19, weight=ft.FontWeight.BOLD, head=True),
+                   k.muted(desc, size=13)], spacing=2, expand=True),
+        _abbr(app, code),
+        k.square_button(ft.Icons.EDIT_OUTLINED, lambda e: alignment_dialog(app, c), "Změnit přesvědčení"),
+    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.Padding.symmetric(horizontal=14, vertical=12), glow=True, on_click=lambda e: alignment_dialog(app, c))
+
+
+def alignment_dialog(app, c: dict) -> None:
+    """Výběr přesvědčení, nebo hod k10 podle tabulky pro rasu postavy."""
+    from . import dice_shapes
+
+    k = app.kit
+    l = app.look
+    st = {"sel": c.get("alignment"), "roll": None}
+    table = drd.ALIGN_TABLE.get(c["race"], drd.ALIGN_TABLE["Člověk"])
+    holder = ft.Column(spacing=10, tight=True)
+
+    def pick(code):
+        def h(e):
+            st["sel"] = code
+            draw()
+        return h
+
+    def roll(e):
+        st["roll"], st["sel"] = drd.roll_alignment(c["race"])
+        draw()
+
+    def draw():
+        opts = []
+        for code, name, desc in drd.ALIGNMENTS:
+            on = code == st["sel"]
+            opts.append(ft.Container(ft.Row([
+                _abbr(app, code, on),
+                ft.Column([k.text(name, size=15, weight=ft.FontWeight.BOLD), k.muted(desc, size=12)], spacing=1,
+                          expand=True),
+                ft.Icon(ft.Icons.CHECK, size=20, color=l.ok) if on else ft.Container(width=20),
+            ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.Padding.symmetric(horizontal=12, vertical=10), border_radius=ft.BorderRadius.all(l.radius),
+                gradient=k.grad(l.card2, l.card) if on else None, bgcolor=None if on else l.card,
+                border=ft.Border.all(2 if on else 1, l.orn if on else l.border), shadow=k.glow(12) if on else None,
+                on_click=pick(code), ink=True, data="align:" + code))
+        r = st["roll"]
+        sel_name = (drd.alignment(st["sel"]) or ("", "–"))[1]
+        cells = [ft.Container(ft.Column([
+            k.text(str(i + 1), size=11, color="#ffffff" if r == i + 1 else l.muted, align=ft.TextAlign.CENTER),
+            k.text(v, size=11, weight=ft.FontWeight.BOLD, color="#ffffff" if r == i + 1 else None,
+                   align=ft.TextAlign.CENTER)], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            expand=1, padding=ft.Padding.symmetric(vertical=4), border_radius=ft.BorderRadius.all(4),
+            bgcolor=l.accent if r == i + 1 else None, shadow=k.glow(8) if r == i + 1 else None)
+            for i, v in enumerate(table)]
+        roll_card = k.framed(ft.Column([
+            ft.Row([dice_shapes.die(app, "10", str(r) if r else None, 58, sel=bool(r)),
+                    ft.Column([k.muted(f"Hod k10 podle rasy · {c['race']}", size=12),
+                               k.text(f"Padlo {r} → {sel_name}" if r else "Zatím nehozeno", size=17,
+                                      weight=ft.FontWeight.BOLD, head=True)], spacing=2, expand=True)],
+                   spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row(cells, spacing=2),
+            k.button("Hodit k10 podle rasy", roll, primary=False, icon=ft.Icons.CASINO_OUTLINED, height=44),
+        ], spacing=10), padding=12)
+        holder.controls = [
+            ft.Row([ft.Icon(ft.Icons.BALANCE, size=24, color=l.orn),
+                    k.text("Přesvědčení", size=21, weight=ft.FontWeight.BOLD, head=True)], spacing=10),
+            k.muted("Vyber sám, nebo hoď k10 – tabulka podle rasy postavy. Zákonné dobro → zákonné zlo.", size=13),
+            ft.Column(opts, spacing=6),
+            roll_card,
+        ]
+        try:
+            app.page.update()
+        except Exception:
+            pass
+
+    def save(e):
+        app.close_dialog()
+        if st["sel"]:
+            c["alignment"] = st["sel"]
+            if st["roll"]:
+                model.add_history(c, "Přesvědčení k10", f"{st['roll']} · {st['sel']}")
+            app.save(c)
+            app.refresh()
+
+    draw()
+    app.page.show_dialog(ft.AlertDialog(
+        content=ft.Container(ft.Column([holder], tight=True, scroll=ft.ScrollMode.AUTO), width=360), bgcolor=l.card,
+        actions=[ft.TextButton("Zrušit", on_click=lambda e: app.close_dialog()),
+                 ft.FilledButton(content=ft.Row([ft.Icon(ft.Icons.CHECK, size=18), ft.Text("Uložit")], tight=True,
+                                                spacing=6),
+                                 on_click=save, style=ft.ButtonStyle(bgcolor=l.accent, color=l.on_accent))]))
 
 
 def banner(app, header: ft.Control) -> ft.Control:

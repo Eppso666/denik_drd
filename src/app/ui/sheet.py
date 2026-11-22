@@ -89,7 +89,9 @@ def sheet_html(c: dict) -> str:
                     f"<style>{_CSS}</style></head><body>"]
     p.append(f"<h1>{_e(c['name'])}</h1><p class='sub'>{_e(r.NAME)} · {_e(c['race'])} · "
              f"{_e(magic.branch_label(c))} · {c['level']}. úroveň · zkušenosti {c['xp']}"
-             + (f" / {model.xp_next(c)}" if model.xp_next(c) else "") + "</p>")
+             + (f" / {model.xp_next(c)}" if model.xp_next(c) else "")
+             + (f" · přesvědčení {_e(drd.alignment(c['alignment'])[1])}"
+                if c["system"] == "drd" and drd.alignment(c.get("alignment")) else "") + "</p>")
     boxes = [("Životy", f"{c['hp']}/{c['hp_max']}")]
     if c.get("mana_max"):
         boxes.append((c.get("mana_name") or "Mana", f"{c.get('mana', 0)}/{c['mana_max']}"))

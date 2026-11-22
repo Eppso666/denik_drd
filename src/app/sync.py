@@ -39,7 +39,7 @@ INVITE_BASE = "https://eppso666.github.io/denik_drd/"
 # Bez 0/O, 1/I/L – kód se dobře přečte i nadiktuje.
 ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 BUCKET = "campaign-images"
-SHEET_KEYS = ("name", "race", "cls", "branch", "level", "xp", "xp_next", "attrs", "hp", "hp_max", "mana",
+SHEET_KEYS = ("name", "race", "cls", "branch", "level", "alignment", "xp", "xp_next", "attrs", "hp", "hp_max", "mana",
               "mana_max", "mana_name", "items", "money", "skills", "abilities", "spells", "companions", "fatigue",
               "raw")
 GM_NAME = "Pán jeskyně"

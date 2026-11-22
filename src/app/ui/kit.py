@@ -102,7 +102,7 @@ class Kit:
         return self.framed(ft.Column(children, spacing=0), padding=0)
 
     def row_item(self, left: str, right: str = "", sub: str | None = None, on_click=None, badge: str | None = None,
-                 trailing: ft.Control | None = None) -> ft.Control:
+                 trailing: ft.Control | None = None, note: str | None = None) -> ft.Control:
         left_col: list[ft.Control] = []
         title_row: list[ft.Control] = [self.text(left, size=16, weight=ft.FontWeight.BOLD, max_lines=1)]
         if badge:
@@ -110,6 +110,9 @@ class Kit:
         left_col.append(ft.Row(title_row, spacing=8, tight=True))
         if sub:
             left_col.append(self.muted(sub, max_lines=2))
+        if note:  # vlastní popis (kurzívou, jeden řádek)
+            left_col.append(ft.Text(note, size=13, italic=True, color=self.l.ink, opacity=0.8, max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS))
         controls: list[ft.Control] = [ft.Column(left_col, spacing=2, expand=True)]
         if right:
             short = len(str(right)) <= 7

@@ -455,3 +455,34 @@ def class_note(cls: str) -> str:
                 "Pravidla pro začátečníky pokrývají úrovně 1–5.")
     return "Schopnosti bez procent se ověřují jinak (k6, tabulka nebo rozhodnutí PJ)."
 
+
+
+# --- přesvědčení (PPZ, tabulka „Určování přesvědčení“) --------------------------------------
+# zkratka, název, krátká připomínka (vlastními slovy)
+ALIGNMENTS = [
+    ("ZkD", "Zákonné dobro", "drží slovo i zákony, pomáhá druhým"),
+    ("ZmD", "Zmatené dobro", "dobro koná po svém, pravidla ráda ohne"),
+    ("N", "Neutrální", "hlavně sám za sebe, velké ideály nemá"),
+    ("ZmZ", "Zmatené zlo", "sobecký a nevyzpytatelný, zlo pro vlastní zisk"),
+    ("ZkZ", "Zákonné zlo", "krutý a promyšlený, zlo s pevným řádem"),
+]
+# hod k10 (1–10) → přesvědčení podle rasy
+ALIGN_TABLE = {
+    "Hobit":    ["ZkD", "ZkD", "ZmD", "ZmD", "ZmD", "N", "N", "ZmZ", "ZmZ", "ZkZ"],
+    "Kudůk":    ["ZkD", "ZkD", "ZmD", "ZmD", "ZmD", "N", "N", "ZmZ", "ZmZ", "ZkZ"],
+    "Trpaslík": ["ZkD", "ZkD", "ZmD", "ZmD", "N", "N", "N", "ZmZ", "ZmZ", "ZkZ"],
+    "Elf":      ["ZkD", "ZkD", "ZkD", "ZmD", "ZmD", "ZmD", "N", "N", "ZmZ", "ZmZ"],
+    "Člověk":   ["ZkD", "ZkD", "ZmD", "ZmD", "N", "N", "ZmZ", "ZmZ", "ZkZ", "ZkZ"],
+    "Barbar":   ["ZkD", "ZmD", "ZmD", "N", "N", "N", "ZmZ", "ZmZ", "ZkZ", "ZkZ"],
+    "Kroll":    ["ZmD", "ZmD", "N", "N", "N", "ZmZ", "ZmZ", "ZmZ", "ZkZ", "ZkZ"],
+}
+
+
+def alignment(code: str | None) -> tuple[str, str, str] | None:
+    return next((a for a in ALIGNMENTS if a[0] == code), None)
+
+
+def roll_alignment(race: str, rng: random.Random | None = None) -> tuple[int, str]:
+    """Hod k10 podle rasy → (hod, zkratka přesvědčení)."""
+    k = (rng or random).randint(1, 10)
+    return k, ALIGN_TABLE.get(race, ALIGN_TABLE["Člověk"])[k - 1]

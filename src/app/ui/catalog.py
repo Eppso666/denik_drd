@@ -11,7 +11,7 @@ from ..rules.common import fmt
 from .kit import column, matches
 
 MINE = "Moje předměty"
-ITEM_KEYS = ("name", "category", "weight", "attack", "damage", "defense", "ranged", "quality", "price", "info",
+ITEM_KEYS = ("desc", "name", "category", "weight", "attack", "damage", "defense", "ranged", "quality", "price", "info",
              "range", "hands", "sil_req")
 
 

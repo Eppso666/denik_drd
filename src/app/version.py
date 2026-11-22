@@ -1,9 +1,15 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.13.0"
+VERSION = "0.13.1"
 
 CHANGES: dict[str, list[str]] = {
+    "0.13.1": [
+        "Dračí doupě: přesvědčení pod jménem postavy – výběr z pěti, nebo hod k10 podle rasy.",
+        "Předměty mají vlastní popis; ukáže se v batohu i v detailu předmětu (klepnutím).",
+        "Kostky ve tvaru skutečných kostek (k4 až k20, k6+, k%), hozené číslo uvnitř kostky.",
+        "Vybraná schopnost výrazně svítí a úpravu od PJ jde napsat ručně (−100 až +100 %).",
+    ],
     "0.13.0": [
         "Oddělený Stůl PJ: Pán jeskyně vede kampaň bez postavy – Kampaň, Souboj, Bestiář PJ, Nástroje a Poznámky.",
         "PJ přijímá hráče, zamyká kampaň a smí hráčům měnit životy a zkušenosti, poslat předmět nebo tajnou zprávu; "

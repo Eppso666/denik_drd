@@ -264,7 +264,8 @@ def show_sheet(app, camp, m) -> None:
         r = drd if camp["system"] == "drd" else dh
         body: list[ft.Control] = [
             k.muted(" · ".join(str(x) for x in (sh.get("race"), sh.get("cls"), sh.get("branch"),
-                                                f"{sh.get('level')}. úroveň") if x), size=14),
+                                                f"{sh.get('level')}. úroveň",
+                                                (drd.alignment(sh.get("alignment")) or (0, None))[1]) if x), size=14),
             k.text(f"Životy {sh.get('hp')}/{sh.get('hp_max')}" + (f" · {sh.get('mana_name') or 'Mana'} "
                                                                     f"{sh.get('mana')}/{sh.get('mana_max')}"
                                                                     if sh.get("mana_max") else ""), size=15,
