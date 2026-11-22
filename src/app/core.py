@@ -110,8 +110,8 @@ class App:
 
     @property
     def look(self) -> theme.Look:
-        if self.screen == "generator":
-            return theme.for_system(self.ui.get("gen_sys", "dh"))
+        if self.screen == "generator":  # společná obrazovka: neutrální vzhled, hra se vybírá kartami
+            return theme.for_system(None)
         return theme.for_system(self.system)
 
     @property

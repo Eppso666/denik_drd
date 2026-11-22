@@ -153,6 +153,7 @@ def import_backup(app) -> None:
 
 
 def backup_card(app) -> ft.Control:
+    """Oddíl Záloha podle návrhu úvodní obrazovky."""
     k = app.kit
     l = app.look
     last = app.settings.get("last_backup")
@@ -163,13 +164,15 @@ def backup_card(app) -> ft.Control:
     else:
         info = "Zatím žádná záloha."
     warn = bool(app.order) and (not last or time.time() - float(last) > REMIND_DAYS * 86400)
-    return k.card(ft.Column([
-        ft.Row([ft.Icon(ft.Icons.WARNING_AMBER if warn else ft.Icons.SAVE_OUTLINED,
-                        color=l.warn if warn else l.hi),
-                k.text("Záloha dat", size=15, weight=ft.FontWeight.W_600, expand=True)]),
-        k.muted(info + " Data jsou jen v tomto zařízení – prohlížeč je může smazat. Zálohu si ulož do souboru a "
-                "kdykoli ji obnov (i na jiném zařízení).", size=13),
-        ft.Row([k.button("Zálohovat", lambda e: export_backup(app), icon=ft.Icons.DOWNLOAD, expand=True),
-                k.button("Obnovit", lambda e: import_backup(app), primary=False, icon=ft.Icons.UPLOAD, expand=True)],
-               spacing=8),
-    ], spacing=8), accent=warn)
+    rows: list[ft.Control] = [k.muted(info + " Vše se ukládá jen v tomto zařízení.", size=13)]
+    if warn:
+        rows.append(ft.Row([ft.Icon(ft.Icons.WARNING_AMBER, size=16, color=l.warn),
+                            k.text("Zálohuj – prohlížeč nebo telefon může data smazat.", size=13, color=l.warn,
+                                   expand=True)], spacing=6))
+    rows.append(ft.Row([k.button("Zálohovat", lambda e: export_backup(app), primary=False, icon=ft.Icons.DOWNLOAD,
+                                 expand=1, height=44),
+                        k.button("Obnovit", lambda e: import_backup(app), primary=False, icon=ft.Icons.UPLOAD,
+                                 expand=1, height=44)], spacing=8))
+    return ft.Column([k.section("Záloha", icon=ft.Icons.DOWNLOAD),
+                      k.framed(ft.Column(rows, spacing=10), glow=warn, border_color=l.warn if warn else None)],
+                     spacing=8)

@@ -9,19 +9,20 @@ from ..rules import dh, drd
 from ..rules.common import fmt
 from . import avatar as avatar_ui
 from . import backup
-from .kit import column
+from .kit import Kit, column
 
 SYS = {"dh": dh, "drd": drd}
 
 
 def start(app):
+    """Úvod podle grafického návrhu (Tvoje postavy) doplněný o část Vedu hru (Stůl PJ)."""
     from ..core import Screen
     from . import propojeni
 
     k = app.kit
     l = app.look
     mode = app.ui.get("start_mode", "Hraju")
-    controls: list[ft.Control] = []
+    controls: list[ft.Control] = [k.text("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.orn)]
     seen = app.settings.get("seen_version")
     if seen != VERSION:
         news = version.news_since(seen) if (app.order or app.gm_order) else []
@@ -35,9 +36,9 @@ def start(app):
                 app.refresh()
             lines: list[ft.Control] = [k.text(f"Nová verze {VERSION}", size=17, weight=ft.FontWeight.BOLD, head=True)]
             for v, items in news:
-                lines += [k.muted(f"• {t}", size=13) for t in items]
-            lines.append(ft.Row([ft.TextButton("Rozumím", on_click=ok)], alignment=ft.MainAxisAlignment.END))
-            controls.append(k.card(ft.Column(lines, spacing=4), accent=True))
+                lines += [k.text(f"• {t}", size=13) for t in items]
+            lines.append(ft.Row([k.button("Rozumím", ok, primary=False, height=40)], alignment=ft.MainAxisAlignment.END))
+            controls.append(k.framed(ft.Column(lines, spacing=6), glow=True))
 
     def set_mode(v):
         app.ui["start_mode"] = v
@@ -76,19 +77,19 @@ def start(app):
 
     controls += (chars + gm) if mode == "Hraju" else (gm + chars)
     controls.append(k.note("Stůl PJ a obsah příruček PJ se otevře jen Pánovi jeskyně. Hráči nic nevyplňují."))
-    controls.append(ft.Container(height=4))
     controls.append(backup.backup_card(app))
     controls.append(k.muted(f"Verze {VERSION}", size=12, align=ft.TextAlign.CENTER))
-    return Screen("Deník dobrodruha", [column(controls)])
+    return Screen("Tvoje postavy", [column(controls)])
 
 
 def character_card(app, c: dict) -> ft.Control:
-    """Karta postavy podle návrhu: portrét, jméno, rasa · povolání · úroveň, štítek hry."""
+    """Karta postavy podle návrhu: kulatý odznak, jméno, rasa · povolání · úroveň, pruh se jménem hry, šipka.
+    Smazání: podržet prst na kartě."""
     k = app.kit
     l = app.look
     own = theme.for_system(c["system"])
     r = SYS[c["system"]]
-    avatar = avatar_ui.avatar(app, c, 50, 25, own.orn, own.bg2)
+    avatar = avatar_ui.avatar(app, c, 56, 28, own.orn, own.bg2, border=3, font_family=k.hf)
 
     def delete(e):
         async def do():
@@ -96,30 +97,29 @@ def character_card(app, c: dict) -> ft.Control:
             app.render()
         app.confirm("Smazat postavu?", f"{c['name']} bude smazán i s deníkem a obrázky.", do)
 
-    badge = ft.Container(ft.Text("DrD 1.6" if c["system"] == "drd" else r.SHORT, size=11, weight=ft.FontWeight.BOLD,
-                                 color="#ffffff"), bgcolor=own.accent, border_radius=ft.BorderRadius.all(4),
-                         padding=ft.Padding.symmetric(horizontal=7, vertical=2))
     camp = c.get("campaign")
-    tags: list[ft.Control] = [badge]
+    bar_text = "DrD 1.6" if c["system"] == "drd" else r.SHORT
     if camp and camp.get("status") == "pending":
-        tags.append(k.muted("čeká na PJ", size=11))
+        bar_text += " · čeká na PJ"
+    bar = ft.Container(ft.Text(bar_text, size=11, weight=ft.FontWeight.BOLD, color="#ffffff"), bgcolor=own.accent,
+                       border=ft.Border.all(1, own.orn), border_radius=ft.BorderRadius.all(4),
+                       padding=ft.Padding.symmetric(horizontal=8, vertical=3))
     body = ft.Row([
         avatar,
         ft.Column([
-            k.text(c["name"], size=17, weight=ft.FontWeight.BOLD, head=True, max_lines=1),
-            k.muted(f"{c['race']} · {c['cls']} · {c['level']}. úroveň", size=13, max_lines=1),
-            ft.Row(tags, spacing=6),
-        ], spacing=3, expand=True),
-        ft.PopupMenuButton(icon=ft.Icons.MORE_VERT, icon_color=l.muted, tooltip="Možnosti",
-                           items=[ft.PopupMenuItem(content=ft.Text("Smazat postavu"), on_click=delete)]),
+            k.text(c["name"], size=18, weight=ft.FontWeight.BOLD, head=True, max_lines=1),
+            k.muted(f"{c['race']} · {c['cls']} · {c['level']}. úroveň", size=14, max_lines=1),
+            bar,
+        ], spacing=4, expand=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         ft.Icon(ft.Icons.CHEVRON_RIGHT, size=22, color=own.orn),
     ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-    return ft.Container(body, padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+    return ft.Container(body, padding=ft.Padding.symmetric(horizontal=14, vertical=12),
                         border_radius=ft.BorderRadius.all(l.radius),
                         gradient=ft.LinearGradient(begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
                                                    colors=[own.bg2, l.card], stops=[0.0, 0.7]),
-                        border=ft.Border.all(1, own.frame), on_click=lambda e: app.open_character(c["id"]), ink=True,
-                        data="char:" + c["id"])
+                        border=ft.Border.all(1, own.frame), shadow=[ft.BoxShadow(blur_radius=12, color=own.glow)],
+                        on_click=lambda e: app.open_character(c["id"]), on_long_press=delete, ink=True,
+                        tooltip="Podrž prst pro smazání", data="char:" + c["id"])
 
 
 def campaign_card(app, camp: dict) -> ft.Control:
@@ -159,7 +159,7 @@ def _hraci(n: int) -> str:
 # --- generátor ---------------------------------------------------------------
 
 def open_generator(app) -> None:
-    app.ui.update({"gen_sys": "dh", "gen_mode": "auto", "gen_name": ""})
+    app.ui.update({"gen_sys": app.ui.get("gen_sys") or "drd", "gen_mode": "auto", "gen_name": ""})
     reset_gen(app)
     app.go("generator")
 
@@ -228,35 +228,47 @@ def generator(app):
         u["gen_name"] = e.control.value
 
     name = ft.TextField(label="Jméno postavy", value=u.get("gen_name", ""), on_change=on_name,
-                        border_color=l.frame, focused_border_color=l.hi, color=l.ink, cursor_color=l.hi)
+                        border_color=l.frame, focused_border_color=l.hi, color=l.ink, cursor_color=l.hi,
+                        filled=True, fill_color=l.bg)
+    sl = theme.for_system(s)  # vlastnosti v barvách zvolené hry
+    sk = Kit(sl, theme.head(sl, app.fonts))
+
+    def sys_card(key: str) -> ft.Control:
+        th = theme.for_system(key)
+        on = key == s
+        return ft.Container(ft.Stack([
+            ft.Image(src=th.banner, fit=ft.BoxFit.COVER, left=0, right=0, top=0, bottom=0, opacity=0.65),
+            ft.Container(left=0, right=0, bottom=0, height=60,
+                         gradient=ft.LinearGradient(begin=ft.Alignment.BOTTOM_CENTER, end=ft.Alignment.TOP_CENTER,
+                                                    colors=[th.bg, "#00000000"])),
+            ft.Container(k.text(SYS[key].NAME, size=16, weight=ft.FontWeight.BOLD, head=True, color=th.ink),
+                         left=10, bottom=8, right=8),
+        ]), height=132, expand=1, bgcolor=th.bg, border_radius=ft.BorderRadius.all(l.radius),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            border=ft.Border.all(2 if on else 1, th.orn if on else th.frame),
+            shadow=[ft.BoxShadow(blur_radius=16, color=th.glow)] if on else None,
+            on_click=lambda e, key=key: set_sys(SYS[key].NAME), ink=True, data="gensys:" + key)
 
     rows: list[ft.Control] = []
     left = 0
     if s == "dh" and manual:
         left = dh.POINT_POOL - sum(u["gen_points"])
-    for i, a in enumerate(r.ATTRS):
-        val = u["gen_attrs"][i]
-        b = r.bonus(val)
-        sub = None
-        if s == "drd":
-            lo, hi = drd.attr_range(u["gen_race"], u["gen_cls"], i)
-            n, add = drd.range_dice(lo, hi)
-            sub = f"rozsah {lo}–{hi} ({n}k6{fmt(add) if add else ''})"
-        elif manual:
-            sub = f"body {u['gen_points'][i]} + rodový {dh.RACES[u['gen_race']][i]}" + (
-                " + 3" if a in dh.CLASSES[u['gen_cls']] else "")
-        else:
-            sub = "dominantní +3" if a in dh.CLASSES[u["gen_cls"]] else None
-        label = f"{a}  ·  oprava {fmt(b)}"
-        if manual:
+    if manual:
+        for i, a in enumerate(r.ATTRS):
+            val = u["gen_attrs"][i]
+            if s == "drd":
+                lo, hi = drd.attr_range(u["gen_race"], u["gen_cls"], i)
+                n, add = drd.range_dice(lo, hi)
+                sub = f"rozsah {lo}–{hi} ({n}k6{fmt(add) if add else ''})"
+            else:
+                sub = f"body {u['gen_points'][i]} + rodový {dh.RACES[u['gen_race']][i]}" + (
+                    " + 3" if a in dh.CLASSES[u['gen_cls']] else "")
             rows.append(k.stepper(val, lambda e, i=i: step(app, i, -1), lambda e, i=i: step(app, i, +1),
-                                  label=label, sub=sub))
-        else:
-            rows.append(ft.Row([
-                ft.Column([k.text(label, size=15, weight=ft.FontWeight.W_600)] + ([k.muted(sub)] if sub else []),
-                          spacing=2, expand=True),
-                k.text(val, size=24, weight=ft.FontWeight.BOLD, head=True),
-            ]))
+                                  label=f"{a}  ·  oprava {fmt(r.bonus(val))}", sub=sub))
+    boxes = ft.Row([
+        sk.stat(a, u["gen_attrs"][i], fmt(r.bonus(u["gen_attrs"][i])),
+                sub_color=(sl.accent2 if s == "dh" else sl.orn) if r.bonus(u["gen_attrs"][i]) > 0 else sl.muted)
+        for i, a in enumerate(r.ATTRS)], spacing=6)
 
     if s == "dh":
         hint = (f"Rozděl {dh.POINT_POOL} bodů (do každé vlastnosti 1–6). Zbývá: {left}." if manual else
@@ -264,16 +276,6 @@ def generator(app):
     else:
         hint = ("Zadej hodnoty, které jsi hodil fyzickými kostkami (v povoleném rozsahu)." if manual else
                 "Vlastnosti hozeny podle tabulek rasy a povolání.")
-
-    attrs_card = k.card(ft.Column([
-        ft.Row([k.text("Vlastnosti", size=17, weight=ft.FontWeight.BOLD, head=True, color=l.hi),
-                k.pills(["Automaticky", "Ručně"], "Ručně" if manual else "Automaticky", set_mode, wrap=False)],
-               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        k.muted(hint),
-        *rows,
-        *([] if manual else [k.button("Hodit znovu", lambda e: (reroll(app), app.refresh()), primary=False,
-                                      icon=ft.Icons.CASINO_OUTLINED)]),
-    ], spacing=10))
 
     if s == "dh":
         hp = dh.hit_points(u["gen_attrs"])
@@ -300,10 +302,7 @@ def generator(app):
             ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER), expand=1, bgcolor=l.card2,
                 border=ft.Border.all(1, l.border), border_radius=ft.BorderRadius.all(l.radius),
                 padding=ft.Padding.symmetric(vertical=8, horizontal=4)))
-        class_card = [k.card(ft.Column([
-            ft.Row([k.text(cls, size=21, weight=ft.FontWeight.BOLD, head=True, color=l.hi),
-                    k.muted(u["gen_race"], size=13, weight=ft.FontWeight.BOLD)],
-                   alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        class_card = [k.section(f"Povolání {cls}", icon=ft.Icons.MENU_BOOK_OUTLINED), k.card(ft.Column([
             k.muted(drd.CLASS_DESC[cls], size=13),
             k.muted("ZÁKLADNÍ VLASTNOSTI POVOLÁNÍ", size=12, weight=ft.FontWeight.BOLD),
             ft.Row(mains, spacing=8),
@@ -312,7 +311,7 @@ def generator(app):
                     lambda v: (u.update({"gen_lvl": int(v)}), app.refresh()), equal=True),
             class_abilities_card(app, cls, lvl, u["gen_attrs"]),
             k.muted(drd.class_note(cls), size=12),
-        ], spacing=8), accent=True)]
+        ], spacing=8))]
 
     can_create = not (s == "dh" and manual and left != 0)
 
@@ -322,18 +321,24 @@ def generator(app):
         app.go("start")
         app.toast(f"Postava {c['name']} byla vytvořena.")
 
+    attr_head = k.section("Vlastnosti", icon=ft.Icons.CASINO_OUTLINED,
+                          trailing=None if manual else k.link("Hodit znovu", lambda e: (reroll(app), app.refresh())))
     controls = [
-        k.muted("PRAVIDLA", size=12, weight=ft.FontWeight.BOLD),
-        k.pills([dh.NAME, drd.NAME], r.NAME, set_sys, equal=True),
-        name,
-        k.muted("RASA", size=12, weight=ft.FontWeight.BOLD),
-        k.pills(races, u["gen_race"], set_race),
-        k.muted("POVOLÁNÍ", size=12, weight=ft.FontWeight.BOLD),
-        k.pills(classes, u["gen_cls"], set_cls),
+        k.muted("Vyber hru – aplikace se přizpůsobí pravidlům i vzhledem.", size=14),
+        ft.Row([sys_card("drd"), sys_card("dh")], spacing=10),
+        k.section("Jméno"), name,
+        k.section("Rasa"), k.pills(races, u["gen_race"], set_race),
+        k.section("Povolání"), k.pills(classes, u["gen_cls"], set_cls),
+        attr_head,
+        boxes,
+        k.pills(["Podle pravidel", "Ručně"], "Ručně" if manual else "Podle pravidel", set_mode, wrap=False),
+        k.muted(hint, size=12),
+        *rows,
+        k.muted(summary, size=13),
         *class_card,
-        attrs_card,
-        k.muted(summary),
-        k.button("Vytvořit postavu" if can_create else f"Rozděl ještě {left} bodů", create, disabled=not can_create),
+        ft.Container(height=6),
+        ft.Row([k.button("Vytvořit postavu" if can_create else f"Rozděl ještě {left} bodů", create,
+                         icon=ft.Icons.CHECK, disabled=not can_create, expand=1, height=52)]),
     ]
     return Screen("Nová postava", [column(controls)])
 
