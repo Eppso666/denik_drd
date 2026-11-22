@@ -104,8 +104,36 @@ class Ev:
         self.data = value
 
 
+class FakePicker:
+    """Výběr souborů bez grafického klienta: nic nevybere."""
+
+    async def pick_files(self, **kw):
+        return None
+
+    async def save_file(self, **kw):
+        return None
+
+
+class _FakeServer:
+    def close(self):
+        pass
+
+    async def wait_closed(self):
+        pass
+
+
 @pytest.fixture
-def make_app():
+def make_app(monkeypatch):
+    from app import stul
+
+    async def fake_start(self, port=stul.PORT, host="0.0.0.0"):  # stůl v testech neotevírá síť
+        self.server = _FakeServer()
+        return True
+
+    async def no_tables(hosts=None, timeout=0.8):
+        return []
+    monkeypatch.setattr(stul.Host, "start", fake_start)
+    monkeypatch.setattr(stul, "find_tables", no_tables)
     pages = []
 
     def _make(web=False):
@@ -113,6 +141,7 @@ def make_app():
         pages.append(page)
         app = core.App(page, set())
         app.store = MemoryStore()
+        app.picker = FakePicker()
 
         async def no_pick(**kw):  # bez grafického klienta není výběr souborů
             return None
