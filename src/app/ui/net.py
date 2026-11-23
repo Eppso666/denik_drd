@@ -22,11 +22,13 @@ def ago(ts) -> str:
     return time.strftime("%d. %m.", time.localtime(ts))
 
 
-def busy(app, text: str) -> None:
+def busy(app, text: str) -> ft.AlertDialog:
     k = app.kit
-    app.page.show_dialog(ft.AlertDialog(
+    dlg = ft.AlertDialog(
         modal=True, content=ft.Row([ft.ProgressRing(width=22, height=22, color=app.look.hi),
-                                    k.text(text, size=15)], spacing=14, tight=True)))
+                                    k.text(text, size=15)], spacing=14, tight=True))
+    app.page.show_dialog(dlg)
+    return dlg
 
 
 def info(app, title: str, text: str, big: str | None = None, extra: list[ft.Control] | None = None) -> None:
@@ -47,26 +49,30 @@ def info(app, title: str, text: str, big: str | None = None, extra: list[ft.Cont
 def remote(app, title: str, coro_factory, ok_msg=None, after=None) -> None:
     """Spustí operaci se serverem nebo stolem s kolečkem a srozumitelnou chybou."""
     async def run():
-        busy(app, title)
+        dlg = busy(app, title)
         try:
             result = await coro_factory()
         except ValueError as ex:
-            app.close_dialog()
+            app.close_dialog(dlg)
             app.toast(str(ex))
             return
         except stul.TableError as ex:
-            app.close_dialog()
+            app.close_dialog(dlg)
             info(app, "U stolu", str(ex))
             return
         except sync.SyncError as ex:
-            app.close_dialog()
+            app.close_dialog(dlg)
             info(app, "Nepovedlo se", str(ex))
             return
         except OSError:
-            app.close_dialog()
+            app.close_dialog(dlg)
             info(app, "Bez připojení", "Server ani stůl PJ není dostupný. Zkontroluj připojení a zkus to znovu.")
             return
-        app.close_dialog()
+        except Exception as ex:  # nic nesmí nechat kolečko točit se
+            app.close_dialog(dlg)
+            info(app, "Nepovedlo se", f"Neočekávaná chyba: {ex}")
+            return
+        app.close_dialog(dlg)
         if after:
             r = after(result)
             if hasattr(r, "__await__"):

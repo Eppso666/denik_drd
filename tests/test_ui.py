@@ -787,3 +787,23 @@ def test_dice_shapes_ability_and_manual_pm(make_app):
     btn.on_click(Ev(btn))
     drain(page)
     assert app.ui["dice_last"]["die"] == "%" and app.ui["dice_last"]["head"]
+
+
+def test_spinner_closes_even_with_notification(make_app):
+    """Oznámení (SnackBar) během čekání nesmí zavřít místo kolečka – kolečko se musí vždy zavřít."""
+    from app.ui import net
+    app, page = make_app()
+
+    async def work():
+        app.toast("PJ tě přijal do kampaně.")
+        return 1
+    net.remote(app, "Posílám žádost PJ…", work)
+    drain(page)
+    assert not any(isinstance(d, ft.AlertDialog) for d in page.dialogs)
+    assert any(isinstance(d, ft.SnackBar) for d in page.dialogs)
+
+    async def boom():
+        raise KeyError("x")
+    net.remote(app, "Zkouším…", boom)
+    drain(page)
+    assert not any(isinstance(d, ft.AlertDialog) and isinstance(d.content, ft.Row) for d in page.dialogs)

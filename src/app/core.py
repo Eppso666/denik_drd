@@ -512,9 +512,27 @@ class App:
     def toast(self, message: str) -> None:
         self.page.show_dialog(ft.SnackBar(ft.Text(message)))
 
-    def close_dialog(self) -> None:
+    def close_dialog(self, dialog: Any = None) -> None:
+        """Zavře dialog: zadaný, jinak nejvrchnější otevřený – ale nikdy oznámení dole (SnackBar).
+        (Oznámení je ve Fletu také „dialog“; kdyby se zavřelo místo kolečka, kolečko by se točilo dál.)"""
+        page = self.page
         try:
-            self.page.pop_dialog()
+            stack = getattr(getattr(page, "_dialogs", None), "controls", None)
+            if stack is not None:  # skutečná stránka Flet
+                dlg = dialog if dialog is not None else next(
+                    (d for d in reversed(stack) if getattr(d, "open", False) and not isinstance(d, ft.SnackBar)), None)
+                if dlg is not None and getattr(dlg, "open", False):
+                    dlg.open = False
+                    dlg.update()
+                return
+            lst = getattr(page, "dialogs", None)
+            if isinstance(lst, list):  # testovací stránka
+                target = dialog if dialog in lst else next(
+                    (d for d in reversed(lst) if not isinstance(d, ft.SnackBar)), None)
+                if target is not None:
+                    lst.remove(target)
+                return
+            page.pop_dialog()
         except Exception:
             pass
 

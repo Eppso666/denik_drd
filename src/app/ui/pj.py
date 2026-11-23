@@ -250,14 +250,14 @@ def show_sheet(app, camp, m) -> None:
     async def run():
         sh = (camp.get("sheets") or {}).get(m["user_id"])
         if not sh:
-            net.busy(app, "Načítám deník…")
+            dlg = net.busy(app, "Načítám deník…")
             try:
                 sh = await _cl(app, camp).member_sheet(camp["id"], m["user_id"])
             except (sync.SyncError, OSError) as ex:
-                app.close_dialog()
+                app.close_dialog(dlg)
                 net.info(app, "Nepovedlo se", str(ex) or "Bez připojení.")
                 return
-            app.close_dialog()
+            app.close_dialog(dlg)
         if not sh:
             net.info(app, "Deník", "Hráč zatím deník neposlal.")
             return
