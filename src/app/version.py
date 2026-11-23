@@ -1,9 +1,14 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.13.1"
+VERSION = "0.14.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.14.0": [
+        "Nová úvodní obrazovka a obrazovka Nová postava podle grafického návrhu.",
+        "Stůl PJ a propojení u stolu jsou zatím odložené (vrátí se před zveřejněním aplikace); "
+        "Družina funguje jako ve verzi 0.12 – připojení kódem kampaně.",
+    ],
     "0.13.1": [
         "Dračí doupě: přesvědčení pod jménem postavy – výběr z pěti, nebo hod k10 podle rasy.",
         "Předměty mají vlastní popis; ukáže se v batohu i v detailu předmětu (klepnutím).",

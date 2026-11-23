@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "flet==${FLET_VERSION}" pytest pillow qrcode
+      - run: pip install "flet==${FLET_VERSION}" pytest pillow
       - run: pytest -q
 
   android:

@@ -15,17 +15,15 @@ SYS = {"dh": dh, "drd": drd}
 
 
 def start(app):
-    """Úvod podle grafického návrhu (Tvoje postavy) doplněný o část Vedu hru (Stůl PJ)."""
+    """Úvod podle grafického návrhu (Tvoje postavy)."""
     from ..core import Screen
-    from . import propojeni
 
     k = app.kit
     l = app.look
-    mode = app.ui.get("start_mode", "Hraju")
     controls: list[ft.Control] = [k.text("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.orn)]
     seen = app.settings.get("seen_version")
     if seen != VERSION:
-        news = version.news_since(seen) if (app.order or app.gm_order) else []
+        news = version.news_since(seen) if app.order else []
         if not news:
             app.settings["seen_version"] = VERSION
             app.save(settings=True)
@@ -40,18 +38,7 @@ def start(app):
             lines.append(ft.Row([k.button("Rozumím", ok, primary=False, height=40)], alignment=ft.MainAxisAlignment.END))
             controls.append(k.framed(ft.Column(lines, spacing=6), glow=True))
 
-    def set_mode(v):
-        app.ui["start_mode"] = v
-        app.refresh()
-
-    controls.append(k.pills(["Hraju", "Vedu hru (PJ)"], mode, set_mode, equal=True))
-    if app.ui.get("invite_text"):
-        controls.append(k.card(ft.Column([
-            k.text("Máš pozvánku do kampaně", size=16, weight=ft.FontWeight.BOLD, head=True),
-            k.muted("Otevři postavu, se kterou se připojíš, a klepni na Družina – pozvánka je předvyplněná.", size=13),
-        ], spacing=4), accent=True))
-
-    chars: list[ft.Control] = [k.section("Moje postavy", icon=ft.Icons.PERSON_OUTLINE)]
+    chars: list[ft.Control] = []
     if not app.order:
         chars.append(k.card(ft.Column([
             ft.Icon(ft.Icons.CASINO_OUTLINED, size=48, color=l.hi),
@@ -64,19 +51,7 @@ def start(app):
     chars.append(k.button("Nová postava" if app.order else "Vytvořit postavu", lambda e: open_generator(app),
                           primary=not app.order, icon=ft.Icons.ADD))
 
-    gm: list[ft.Control] = [k.section("Vedu hru", icon=ft.Icons.WORKSPACE_PREMIUM_OUTLINED)]
-    gm += [campaign_card(app, app.gm[cid]) for cid in app.gm_order]
-    if not app.gm_order:
-        gm.append(k.muted("Jako Pán jeskyně založíš kampaň bez postavy: hraje se u stolu přes Wi-Fi, nebo na tvém "
-                          "vlastním serveru.", size=13))
-    gm.append(ft.Row([k.button("Nová kampaň (PJ)", lambda e: propojeni.new_campaign(app), primary=False,
-                               icon=ft.Icons.WORKSPACE_PREMIUM_OUTLINED, expand=1)]))
-    gm.append(ft.Container(k.text("Přihlásit se jako PJ na tomto zařízení ›", size=13, weight=ft.FontWeight.BOLD,
-                                  color=l.orn), on_click=lambda e: app.go("pj_login", login_done=None),
-                           ink=True, padding=ft.Padding.symmetric(vertical=8), alignment=ft.Alignment.CENTER))
-
-    controls += (chars + gm) if mode == "Hraju" else (gm + chars)
-    controls.append(k.note("Stůl PJ a obsah příruček PJ se otevře jen Pánovi jeskyně. Hráči nic nevyplňují."))
+    controls += chars
     controls.append(backup.backup_card(app))
     controls.append(k.muted(f"Verze {VERSION}", size=12, align=ft.TextAlign.CENTER))
     return Screen("Tvoje postavy", [column(controls)])
@@ -120,40 +95,6 @@ def character_card(app, c: dict) -> ft.Control:
                         border=ft.Border.all(1, own.frame), shadow=[ft.BoxShadow(blur_radius=12, color=own.glow)],
                         on_click=lambda e: app.open_character(c["id"]), on_long_press=delete, ink=True,
                         tooltip="Podrž prst pro smazání", data="char:" + c["id"])
-
-
-def campaign_card(app, camp: dict) -> ft.Control:
-    """Karta kampaně PJ: korunka, název, hra · sezení · hráči, čekající žádosti."""
-    from .. import sync
-
-    k = app.kit
-    l = app.look
-    own = theme.for_system(camp["system"])
-    n = len(sync.players(camp))
-    waiting = len(sync.players(camp, "pending"))
-    game = "Dračí doupě 1.6" if camp["system"] == "drd" else "Dračí Hlídka"
-    how = "u stolu" if sync.is_table(camp) else "server"
-    col: list[ft.Control] = [k.text(camp["name"], size=17, weight=ft.FontWeight.BOLD, head=True, max_lines=1),
-                             k.muted(f"{game} · sezení {camp['session']} · {n} {_hraci(n)} · {how}", size=13)]
-    if waiting:
-        col.append(ft.Row([ft.Icon(ft.Icons.NOTIFICATIONS_OUTLINED, size=14, color=l.warn),
-                           k.text(f"{waiting} čeká na schválení", size=12, weight=ft.FontWeight.BOLD, color=l.warn)],
-                          spacing=4))
-    crown = ft.Container(ft.Icon(ft.Icons.WORKSPACE_PREMIUM, size=26, color="#ffffff"), width=50, height=50,
-                         alignment=ft.Alignment.CENTER, border_radius=ft.BorderRadius.all(8),
-                         gradient=ft.RadialGradient(colors=[own.accent2, own.accent]), border=ft.Border.all(2, own.orn))
-    return ft.Container(
-        ft.Row([crown, ft.Column(col, spacing=3, expand=True), ft.Icon(ft.Icons.CHEVRON_RIGHT, size=22, color=own.orn)],
-               spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        padding=ft.Padding.all(12), border_radius=ft.BorderRadius.all(l.radius),
-        gradient=ft.LinearGradient(begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
-                                   colors=[own.bg2, l.card], stops=[0.0, 0.75]),
-        border=ft.Border.all(1, own.orn), shadow=[ft.BoxShadow(blur_radius=12, color=own.glow)],
-        on_click=lambda e: app.open_gm(camp["id"]), ink=True, data="camp:" + camp["id"])
-
-
-def _hraci(n: int) -> str:
-    return "hráč" if n == 1 else "hráči" if 2 <= n <= 4 else "hráčů"
 
 
 # --- generátor ---------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Záloha a obnova všech dat (postavy, kampaně PJ, bestiář, nastavení, obrázky) do jednoho souboru JSON."""
+"""Záloha a obnova všech dat (postavy, bestiář, nastavení, obrázky) do jednoho souboru JSON."""
 from __future__ import annotations
 
 import base64
@@ -27,15 +27,9 @@ async def build_backup(app) -> bytes:
             data = app.images.get(ref) or await app.store.load_image(ref)
             if data:
                 images[ref] = base64.b64encode(data).decode("ascii")
-    for cid in app.gm_order:  # připravené mapy PJ
-        for mp in app.gm[cid].get("maps", []):
-            data = app.images.get(mp.get("ref")) or await app.store.load_image(mp.get("ref", ""))
-            if data:
-                images[mp["ref"]] = base64.b64encode(data).decode("ascii")
     payload = {
         "app": "denik-dobrodruha", "format": FORMAT, "exported": time.strftime("%Y-%m-%d %H:%M"),
         "order": list(app.order), "chars": [app.chars[cid] for cid in app.order],
-        "gm": [app.gm[cid] for cid in app.gm_order],
         "bestiary": app.bestiary, "settings": {k: v for k, v in app.settings.items() if k != "last_backup"},
         "images": images,
     }
@@ -77,17 +71,6 @@ async def restore(app, data: dict) -> int:
         await app.store.set_json("char." + c["id"], c)
         count += 1
     await app.store.set_json("order", app.order)
-    for camp in data.get("gm") or []:  # kampaně PJ
-        if not isinstance(camp, dict) or "id" not in camp or "system" not in camp:
-            continue
-        for mp in camp.get("maps", []):
-            if mp.get("ref") in remap:
-                mp["ref"] = remap[mp["ref"]]
-        app.gm[camp["id"]] = camp
-        if camp["id"] not in app.gm_order:
-            app.gm_order.append(camp["id"])
-        await app.store.set_json("gm." + camp["id"], camp)
-    await app.store.set_json("gm_order", app.gm_order)
     for sys_key, beasts in (data.get("bestiary") or {}).items():
         if sys_key in app.bestiary and isinstance(beasts, list):
             known = {b.get("id") for b in app.bestiary[sys_key]}
