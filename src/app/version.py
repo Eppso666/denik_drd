@@ -13,6 +13,9 @@ CHANGES: dict[str, list[str]] = {
         "Kostky → Souboj: útok vybranou zbraní a obrana složená z vybavených předmětů.",
         "Postup na úroveň: Hod na životy a magenergii s dotazem na zálohu a tlačítkem Zpět.",
         "Deník → Postava: přesvědčení a příběh postavy.",
+        "Seslání kouzla: okno výsledku (padlo vs. potřeba), hod na zranění, zásah nebo léčení podle pravidel, "
+        "past pro terč; při zadávání magenergie přepočet (např. 7 magů = 3 blesky). Stejné okno u výroby alchymisty.",
+        "Bestiář je jen u Pána jeskyně – hráč ho ve spodní liště nemá.",
     ],
     "0.14.0": [
         "Nová úvodní obrazovka a obrazovka Nová postava podle grafického návrhu.",

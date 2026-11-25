@@ -6,7 +6,7 @@ from app import model
 from app.ui import magic, start
 from conftest import Ev, drain, walk
 
-SCREENS = ["postava", "batoh", "katalog", "kostky", "souboj", "postup", "dovednosti", "bestiar", "denik"]
+SCREENS = ["postava", "batoh", "katalog", "kostky", "souboj", "postup", "dovednosti", "denik"]
 
 
 def handlers(view_list):
@@ -753,3 +753,64 @@ def test_denik_postava_story(make_app):
     d.actions[-1].on_click(Ev(d.actions[-1]))
     drain(page)
     assert c["story"] == "Vyrostl v krollím táboře." and "Vyrostl v krollím táboře." in texts_of(page)
+
+
+# ------------------------------------------------------------------------- výsledek seslání kouzla (25. 11.)
+
+def test_spell_effects_counts():
+    from app.rules import drd_ucinky as U
+    assert U.count("Modré blesky", 7) == 3 and U.count("Modré blesky", 2) == 0
+    assert U.count("Zelené blesky", 7) == 2 and U.count("Rudé blesky", 13) == 2
+    assert U.summary("Modré blesky", 7) == "7 magů = 3 blesky · zranění 3 × k6"
+    assert "zásah 80 %" in U.summary("Zelené blesky", 7)
+    assert U.dice_label(U.EFFECTS["Černý blesk"]["dice"]) == "3k6+38"
+
+
+def _cast(app, page, c, spell, mana, monkeypatch, roll):
+    from app.ui import magic
+    from app.rules import drd_kouzla
+    import app.ui.magic as mg
+    monkeypatch.setattr(mg, "d", lambda sides: roll)
+    magic.spell_detail(app, c, drd_kouzla.SPELL_BY_NAME[spell], known=True)
+    d = page.dialogs[-1]
+    d.actions[0].on_click(Ev(d.actions[0]))  # Seslat
+    f = page.dialogs[-1]
+    tf = [x for x in walk(f) if isinstance(x, ft.TextField)]
+    tf[0].value = str(mana)
+    f.actions[-1].on_click(Ev(f.actions[-1]))
+    drain(page)
+    return page.dialogs[-1]
+
+
+def test_cast_success_damage_and_failure(make_app, monkeypatch):
+    app, page = make_app()
+    c = model.create_character("drd", "Elwin", "Elf", "Kouzelník", [9, 14, 10, 17, 13])
+    c["spells"] = ["Modré blesky", "Hypnóza"]
+    c["mana"] = 30
+    app.add_character(c)
+    app.open_character(c["id"])
+    res = _cast(app, page, c, "Modré blesky", 7, monkeypatch, 5)
+    assert res.data == "spell-result" and c["mana"] == 23
+    t = [getattr(x, "value", "") for x in walk(res)]
+    assert "ÚSPĚCH" in t and any("3 blesky × k6" in str(v) for v in t)
+    btn = next(x for x in walk(res) if getattr(x, "data", None) == "roll-effect")
+    btn.on_click(Ev(btn))
+    assert c["history"][0]["label"].startswith("Zranění") and 3 <= int(c["history"][0]["value"]) <= 18
+    res = _cast(app, page, c, "Modré blesky", 3, monkeypatch, 99)
+    t = [getattr(x, "value", "") for x in walk(res)]
+    assert "NEÚSPĚCH" in t and any("padlo 99, potřeba nejvýš" in str(v) for v in t) and c["mana"] == 20
+    assert not any(getattr(x, "data", None) == "roll-effect" for x in walk(res))
+    res = _cast(app, page, c, "Hypnóza", 10, monkeypatch, 5)
+    t = [getattr(x, "value", "") for x in walk(res)]
+    assert "Past pro terč" in t
+
+
+def test_player_has_no_bestiary(make_app):
+    from app import core
+    app, page = make_app()
+    assert "bestiar" not in [n[0] for n in core.NAV] and "pj_bestiar" in [n[0] for n in core.PJ_NAV]
+    c = model.create_character("drd", "Luke", "Kroll", "Válečník", [20, 8, 20, 2, 8])
+    app.add_character(c)
+    app.open_character(c["id"])
+    app.go("bestiar")
+    assert app.screen == "postava"

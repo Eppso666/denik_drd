@@ -32,7 +32,6 @@ PARENTS: dict[str, str | None] = {
     "postava": None,
     "batoh": None,
     "kostky": None,
-    "bestiar": None,
     "denik": None,
     "souboj": "kostky",
     "postup": "postava",
@@ -52,7 +51,7 @@ PARENTS: dict[str, str | None] = {
 PJ_ROOTS = ("pj_kampan", "pj_souboj", "pj_bestiar", "pj_nastroje", "pj_poznamky")
 COMMON = ("uvod", "start", "doupe", "generator")  # společné obrazovky v neutrálním vzhledu
 NAV = [("postava", "Postava", ft.Icons.PERSON_OUTLINE), ("batoh", "Batoh", ft.Icons.BACKPACK_OUTLINED),
-       ("kostky", "Kostky", ft.Icons.CASINO_OUTLINED), ("bestiar", "Bestiář", ft.Icons.PETS_OUTLINED),
+       ("kostky", "Kostky", ft.Icons.CASINO_OUTLINED),  # Bestiář je jen u Pána jeskyně
        ("denik", "Deník", ft.Icons.MENU_BOOK_OUTLINED)]
 PJ_NAV = [("pj_kampan", "Kampaň", ft.Icons.GROUPS_OUTLINED), ("pj_souboj", "Souboj", ft.Icons.SPORTS_MARTIAL_ARTS),
           ("pj_bestiar", "Bestiář", ft.Icons.PETS_OUTLINED), ("pj_nastroje", "Nástroje", ft.Icons.AUTO_FIX_HIGH),
@@ -294,7 +293,7 @@ class App:
         pj_root = self.screen in PJ_ROOTS
         is_char_root = self.system is not None and parent is None and not pj_root
         leading = None
-        if parent or self.screen not in ("uvod", "postava", "batoh", "kostky", "bestiar", "denik", *PJ_ROOTS):
+        if parent or self.screen not in ("uvod", "postava", "batoh", "kostky", "denik", *PJ_ROOTS):
             leading = ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=look.ink, on_click=lambda e: self.back(),
                                     tooltip="Zpět")
         elif is_char_root:
@@ -462,11 +461,13 @@ class App:
     def form(self, title: str, fields: list[tuple], on_save: Callable[[dict], Any], save_label: str = "Uložit",
              on_delete: Callable[[], Any] | None = None) -> None:
         """Obecný formulář. Pole: (klíč, popisek, hodnota, druh[, volby]). Druhy: text, long, int, float, bool, choice,
-        password (skryté heslo), info (jen vysvětlující text)."""
+        password (skryté heslo), info (jen vysvětlující text),
+        calc (živý přepočet: hodnota = (klíč pole, funkce text → popisek))."""
         look = self.look
         k = self.kit
         controls: dict[str, ft.Control] = {}
         body: list[ft.Control] = []
+        calcs: list = []
         for f in fields:
             key, label, value, kind = f[0], f[1], f[2], f[3]
             if kind == "bool":
@@ -474,6 +475,14 @@ class App:
             elif kind == "info":
                 controls[key] = None
                 body.append(k.muted(str(value), size=12))
+                continue
+            elif kind == "calc":  # živý přepočet: value = (klíč zdrojového pole, funkce hodnota → text)
+                src_key, fn = value
+                txt = ft.Text(fn(controls[src_key].value), size=14, weight=ft.FontWeight.BOLD, color=look.ptext,
+                              font_family=k.hf)
+                calcs.append((src_key, fn, txt))
+                controls[key] = None
+                body.append(k.parch(txt))
                 continue
             elif kind == "choice":
                 opts = f[4]
@@ -497,7 +506,7 @@ class App:
             out: dict = {}
             for f in fields:
                 key, kind = f[0], f[3]
-                if kind == "info":
+                if kind in ("info", "calc"):
                     continue
                 c = controls[key]
                 v = c.value
@@ -515,6 +524,12 @@ class App:
                     v = bool(v)
                 out[key] = v
             return out
+
+        for src_key, fn, txt in calcs:
+            def changed(e, fn=fn, txt=txt):
+                txt.value = fn(e.control.value)
+                txt.update()
+            controls[src_key].on_change = changed
 
         def save(e):
             data = collect()

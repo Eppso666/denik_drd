@@ -6,8 +6,9 @@ import re
 import flet as ft
 
 from .. import model
-from ..rules import drd, drd_alchymie, drd_hranicar, drd_kouzla, drd_obory
+from ..rules import drd, drd_alchymie, drd_hranicar, drd_kouzla, drd_obory, drd_ucinky
 from ..rules.common import d
+from . import spell_result
 from .kit import column, matches
 
 
@@ -192,24 +193,36 @@ def spell_detail(app, c: dict, s: dict, known: bool) -> None:
                 app.toast("Nemáš tolik magenergie.")
                 return
             c["mana"] = c.get("mana", 0) - spent
+            roll = chance = None
+            word = None
             if ranger:
-                ok, txt = True, "sesláno"
+                ok, txt, word = True, "sesláno", "Sesláno"
             else:
                 chance = drd_kouzla.success_chance(c["attrs"][3])
-                ok, txt = drd.pct_text(d(100), chance, c["level"])
+                roll = d(100)
+                ok, special = drd.pct_outcome(roll, chance, c["level"])
+                word = special.capitalize() if special else None
+                txt = drd.pct_text(roll, chance, c["level"])[1]
             model.add_history(c, f"Kouzlo {s['name']}", txt)
             n = int(v.get("dur") or 0)
             if ok and n > 0:
                 add_active(c, s["name"], n, v.get("unit") or "kolo")
             app.save(c)
-            app.refresh()
-            app.toast(f"{s['name']}: {txt}, −{spent} magů.")
+            spell_result.show(app, c, s["name"], spent, ok, roll, chance, word=word, trap=s.get("trap") or None,
+                              duration=s.get("duration") if s.get("trap") else None)
         dn, du = parse_duration(s["duration"])
-        app.form(f"Seslat: {s['name']}", [
-            ("mana", f"Vložená magenergie ({s['mana']})", s["min"] or 1, "int"),
-            ("dur", "Sledovat trvání – počet (0 = ne)", dn, "int"),
-            ("unit", "Jednotka", du, "choice", UNITS),
-        ], do, save_label="Seslat" if ranger else "Seslat a hodit k%")
+        fields = [("mana", f"Vložená magenergie ({s['mana']})", s["min"] or 1, "int")]
+        if drd_ucinky.effect(s["name"]):
+            def calc(val, name=s["name"]):
+                try:
+                    m = int(str(val or 0).split(".")[0] or 0)
+                except ValueError:
+                    m = 0
+                return (drd_ucinky.summary(name, m) or "") + f" · máš {int(c.get('mana', 0))} magů"
+            fields.append(("calc", "", ("mana", calc), "calc"))
+        fields += [("dur", "Sledovat trvání – počet (0 = ne)", dn, "int"),
+                   ("unit", "Jednotka", du, "choice", UNITS)]
+        app.form(f"Seslat: {s['name']}", fields, do, save_label="Seslat" if ranger else "Seslat a hodit k%")
 
     actions: list[ft.Control] = []
     if known:
@@ -574,14 +587,19 @@ def craft_dialog(app, c: dict, it: dict) -> None:
                 return
             c["mana"] = int(c.get("mana", 0)) - spent
             c["raw"] = int(c.get("raw", 0)) - it["raw"]
-            ok, txt = drd.pct_text(d(100), drd_alchymie.success_chance(c["attrs"][1]), c["level"])
+            chance = drd_alchymie.success_chance(c["attrs"][1])
+            roll = d(100)
+            ok, special = drd.pct_outcome(roll, chance, c["level"])
+            txt = drd.pct_text(roll, chance, c["level"])[1]
             if ok:
                 cat = "Lektvar" if it["group"] in ("Lektvary", "Jedy") else "Ostatní"
                 c.setdefault("items", []).append(model.item(it["name"], cat, info=it["desc"]))
             model.add_history(c, f"Výroba: {it['name']}", txt)
             app.save(c)
-            app.refresh()
-            app.toast(f"{it['name']}: {txt}" + (" – je v batohu." if ok else "."))
+            spell_result.show(app, c, it["name"], spent, ok, roll, chance,
+                              word=special.capitalize() if special else None,
+                              note=("Předmět je v batohu." if ok else
+                                    f"Výroba se nepovedla. Magenergie i suroviny ({it['raw']} zl) se spotřebovaly."))
         app.close_dialog()
         app.form(f"Vyrobit: {it['name']}", [("mana", f"Magenergie ({it['mana']})", mags or 0, "int")], do,
                  save_label="Vyrobit a hodit k%")

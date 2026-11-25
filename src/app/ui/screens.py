@@ -14,7 +14,6 @@ BUILDERS = {
     "batoh": inventory.batoh,
     "kostky": dice.kostky,
     "souboj": dice.souboj,
-    "bestiar": journal.bestiar,
     "denik": journal.denik,
     "kouzla": magic.kouzla,
     "obor": magic.obor,
@@ -30,6 +29,8 @@ BUILDERS = {
 
 
 def build(app):
+    if app.screen not in BUILDERS:  # např. Bestiář hráče už není – zůstal jen Pánovi jeskyně
+        app.screen = "postava" if app.char else "start"
     if app.screen.startswith("pj_"):
         # Stůl PJ jen pro otevřenou kampaň, jejíž heslo bylo v tomto spuštění zadáno
         if app.camp is None or app.gm_active not in app.gm_unlocked:
