@@ -1,26 +1,61 @@
 """Společné obrazovky: výběr postavy a generátor postavy."""
 from __future__ import annotations
 
+import hashlib
+import os
+import time
+
 import flet as ft
 
-from .. import model, theme, version
+from .. import model, sync, theme, version
 from ..version import VERSION
 from ..rules import dh, drd
 from ..rules.common import fmt
+from . import art, backup
 from . import avatar as avatar_ui
-from . import backup
 from .kit import Kit, column
 
 SYS = {"dh": dh, "drd": drd}
 
 
-def start(app):
-    """Úvod podle grafického návrhu (Tvoje postavy)."""
+def uvod(app):
+    """Úvod: kdo dnes jsi – Hráč, nebo Pán jeskyně (návrh z DRD_uprava.docx)."""
     from ..core import Screen
 
     k = app.kit
     l = app.look
-    controls: list[ft.Control] = [k.text("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.orn)]
+
+    def tile(title: str, sub: str, picture: bytes, target: str) -> ft.Control:
+        return ft.Container(ft.Column([
+            ft.Container(ft.Image(src=picture, fit=ft.BoxFit.COVER, height=210), height=210,
+                         clip_behavior=ft.ClipBehavior.HARD_EDGE),
+            ft.Container(ft.Row([
+                ft.Column([k.text(title, size=22, weight=ft.FontWeight.BOLD, head=True), k.muted(sub, size=13)],
+                          spacing=2, expand=True),
+                ft.Icon(ft.Icons.CHEVRON_RIGHT, size=24, color=l.orn),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER), padding=ft.Padding.symmetric(horizontal=14, vertical=12),
+                gradient=k.grad(l.card2, l.card), border=ft.Border.only(top=ft.BorderSide(1, l.orn))),
+        ], spacing=0), border_radius=ft.BorderRadius.all(8), clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            border=ft.Border.all(2, l.orn), shadow=k.glow(18), bgcolor=l.card,
+            on_click=lambda e: app.go(target), ink=True, data="uvod:" + target)
+
+    controls = [
+        k.text("DENÍK DOBRODRUHA", size=12, weight=ft.FontWeight.BOLD, color=l.orn),
+        k.muted("Kdo dnes jsi?", size=15),
+        tile("Hráč", "Moje postavy a jejich deníky", art.party(), "start"),
+        tile("Pán jeskyně", "Doupě pána jeskyně – moje příběhy", art.puppeteer(), "doupe"),
+        k.muted(f"Verze {VERSION}", size=12, align=ft.TextAlign.CENTER),
+    ]
+    return Screen("Deník dobrodruha", [column(controls)])
+
+
+def start(app):
+    """Hráč – Deník dobrodruha: jen Moje postavy, nová postava a záloha."""
+    from ..core import Screen
+
+    k = app.kit
+    l = app.look
+    controls: list[ft.Control] = []
     seen = app.settings.get("seen_version")
     if seen != VERSION:
         news = version.news_since(seen) if app.order else []
@@ -51,10 +86,137 @@ def start(app):
     chars.append(k.button("Nová postava" if app.order else "Vytvořit postavu", lambda e: open_generator(app),
                           primary=not app.order, icon=ft.Icons.ADD))
 
+    controls.append(k.section("Moje postavy", icon=ft.Icons.PERSON_OUTLINE))
     controls += chars
     controls.append(backup.backup_card(app))
     controls.append(k.muted(f"Verze {VERSION}", size=12, align=ft.TextAlign.CENTER))
-    return Screen("Tvoje postavy", [column(controls)])
+    return Screen("Deník dobrodruha", [column(controls)])
+
+
+# --- Pán jeskyně: Doupě pána jeskyně ------------------------------------------
+
+PW_ROUNDS = 60_000
+
+
+def hash_password(password: str, salt: bytes | None = None) -> dict:
+    """Heslo kampaně se neukládá – jen sůl a otisk (PBKDF2-SHA256)."""
+    salt = salt or os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PW_ROUNDS)
+    return {"salt": salt.hex(), "hash": digest.hex(), "rounds": PW_ROUNDS}
+
+
+def check_password(camp: dict, password: str) -> bool:
+    pw = camp.get("pw") or {}
+    if not pw.get("salt"):
+        return True
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(pw["salt"]),
+                                 int(pw.get("rounds", PW_ROUNDS)))
+    return digest.hex() == pw.get("hash")
+
+
+def new_gm_campaign(system: str, name: str, password: str) -> dict:
+    return {"id": model.new_id(), "name": name.strip()[:80] or "Nový příběh", "system": system, "session": 1,
+            "code": sync.new_code(), "pw": hash_password(password), "created": time.time(),
+            "members": [], "feed": [], "notes": [], "maps": [], "xp_pool": [], "combat": None, "outbox": []}
+
+
+def doupe(app):
+    """Pán jeskyně – Doupě pána jeskyně: Moje příběhy (kampaně chráněné heslem)."""
+    from ..core import Screen
+
+    k = app.kit
+    cards = [campaign_card(app, app.gm[cid]) for cid in app.gm_order if cid in app.gm]
+    controls: list[ft.Control] = [
+        k.section("Moje příběhy", icon=ft.Icons.WORKSPACE_PREMIUM_OUTLINED),
+        *(cards or [k.empty("Zatím žádný příběh. Založ první kampaň – dostane název a heslo.")]),
+        k.button("Nový příběh (kampaň)", lambda e: new_campaign_dialog(app), primary=not cards,
+                 icon=ft.Icons.WORKSPACE_PREMIUM_OUTLINED, height=48),
+        k.note("Každou kampaň chrání její heslo – bez něj se Stůl PJ neotevře. Hráči heslo neznají; do kampaně "
+               "se připojí jen kódem kampaně (propojení s hráči připravujeme)."),
+    ]
+    return Screen("Doupě pána jeskyně", [column(controls)])
+
+
+def campaign_card(app, camp: dict) -> ft.Control:
+    k = app.kit
+    l = app.look
+    own = theme.for_system(camp["system"])
+    game = SYS[camp["system"]].NAME
+
+    def delete(e):
+        async def do():
+            await app.delete_gm(camp["id"])
+            app.render()
+        app.confirm("Smazat kampaň?", f"„{camp['name']}“ bude smazána i s poznámkami PJ. Postavy hráčů zůstanou.",
+                    do)
+
+    badge = ft.Container(ft.Icon(ft.Icons.WORKSPACE_PREMIUM_OUTLINED, size=26, color="#ffffff"), width=50, height=50,
+                         alignment=ft.Alignment.CENTER, border_radius=ft.BorderRadius.all(8),
+                         gradient=ft.RadialGradient(colors=[own.accent2, own.accent]), border=ft.Border.all(2, own.orn))
+    n = len([m for m in camp.get("members") or [] if m.get("status", "approved") == "approved"])
+    body = ft.Row([
+        badge,
+        ft.Column([
+            k.text(camp["name"], size=17, weight=ft.FontWeight.BOLD, head=True, max_lines=2),
+            k.muted(f"{game} · sezení {camp.get('session', 1)} · {n} hráč{'' if n == 1 else ('i' if 1 < n < 5 else 'ů')}",
+                    size=13),
+            ft.Row([ft.Icon(ft.Icons.LOCK_OUTLINE, size=13, color=l.orn), k.muted("chráněno heslem", size=12)],
+                   spacing=4),
+        ], spacing=3, expand=True),
+        ft.Icon(ft.Icons.CHEVRON_RIGHT, size=22, color=own.orn),
+    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    return ft.Container(body, padding=12, border_radius=ft.BorderRadius.all(l.radius),
+                        gradient=ft.LinearGradient(begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
+                                                   colors=[own.bg2, l.card], stops=[0.0, 0.75]),
+                        border=ft.Border.all(1, own.orn), shadow=[ft.BoxShadow(blur_radius=12, color=own.glow)],
+                        on_click=lambda e: open_campaign(app, camp), on_long_press=delete, ink=True,
+                        tooltip="Podrž prst pro smazání", data="camp:" + camp["id"])
+
+
+def new_campaign_dialog(app) -> None:
+    games = [drd.NAME, dh.NAME]
+
+    def save(v):
+        name = (v.get("name") or "").strip()
+        pw, pw2 = v.get("pw") or "", v.get("pw2") or ""
+        if not name:
+            app.toast("Vyplň název kampaně.")
+            return
+        if len(pw) < 4:
+            app.toast("Heslo musí mít aspoň 4 znaky.")
+            return
+        if pw != pw2:
+            app.toast("Hesla se neshodují.")
+            return
+        system = "dh" if v.get("game") == dh.NAME else "drd"
+        camp = new_gm_campaign(system, name, pw)
+        app.add_gm(camp)
+        app.open_gm(camp["id"])
+        app.toast(f"Kampaň {camp['name']} založena. Kód pro hráče {camp['code']}.")
+
+    app.form("Nová kampaň", [
+        ("game", "Hra", games[0], "choice", games),
+        ("name", "Název kampaně", "", "text"),
+        ("pw", "Heslo kampaně", "", "password"),
+        ("pw2", "Heslo znovu", "", "password"),
+        ("hint", "", "Heslo chrání Doupě pána jeskyně – poznámky, bestiář PJ a nástroje. Hráči ho neznají; "
+                     "do kampaně se připojí kódem. Zapomenuté heslo nejde obnovit.", "info"),
+    ], save, save_label="Založit")
+
+
+def open_campaign(app, camp: dict) -> None:
+    """Otevření kampaně: po spuštění aplikace se vždy ptá na heslo."""
+    if camp["id"] in app.gm_unlocked:
+        app.open_gm(camp["id"])
+        return
+
+    def save(v):
+        if check_password(camp, v.get("pw") or ""):
+            app.open_gm(camp["id"])
+        else:
+            app.toast("Špatné heslo.")
+    app.form(camp["name"], [("info", "", "Zadej heslo kampaně. Bez něj se Doupě pána jeskyně neotevře.", "info"),
+                            ("pw", "Heslo kampaně", "", "password")], save, save_label="Otevřít")
 
 
 def character_card(app, c: dict) -> ft.Control:
@@ -230,6 +392,7 @@ def generator(app):
         from .character import class_abilities_card
         lvl = u.get("gen_lvl", 1)
         cls = u["gen_cls"]
+        n_abil = sum(1 for a in drd.class_abilities(cls, lvl, u["gen_attrs"]) if not a["locked"])
         mains = []
         for a in drd.CLASS_RANGES[cls]:
             i = drd.ATTRS.index(a)
@@ -250,7 +413,15 @@ def generator(app):
             k.muted("SCHOPNOSTI NA ÚROVNI", size=12, weight=ft.FontWeight.BOLD),
             k.pills([str(n) for n in range(1, 6)], str(lvl),
                     lambda v: (u.update({"gen_lvl": int(v)}), app.refresh()), equal=True),
-            class_abilities_card(app, cls, lvl, u["gen_attrs"]),
+            k.framed(ft.Column([
+                ft.Row([ft.Icon(ft.Icons.AUTO_AWESOME, size=18, color=l.orn),
+                        k.text(f"{cls} na {lvl}. úrovni", size=15, weight=ft.FontWeight.BOLD, head=True, expand=True),
+                        k.muted(f"{n_abil} schopnost{'' if n_abil == 1 else ('i' if 1 < n_abil < 5 else 'í')}",
+                                size=12)], spacing=8),
+                class_abilities_card(app, cls, lvl, u["gen_attrs"], new_at=lvl),
+                *([k.muted(f"Schopnosti {lvl + 1}.–5. úrovně se ukážou po zvolení vyšší úrovně.", size=12)]
+                  if lvl < 5 else []),
+            ], spacing=8), padding=10, glow=True),
             k.muted(drd.class_note(cls), size=12),
         ], spacing=8))]
 

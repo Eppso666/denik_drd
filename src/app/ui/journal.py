@@ -9,7 +9,7 @@ from .. import model
 from ..rules.common import fmt
 from .kit import column
 
-NOTE_TAGS = ["Úkol", "Postava", "Místo", "Ostatní"]
+NOTE_TAGS = ["Úkol", "Osoba", "Místo", "Ostatní"]  # „Postava“ je teď samostatná záložka Deníku
 IMG_CATS = ["Mapa", "Postava", "Předmět", "Bestiář", "Ostatní"]
 
 DH_FIELDS = [("name", "Jméno", "text"), ("kind", "Druh / prostředí", "text"), ("hp", "Životy", "int"),
@@ -74,7 +74,6 @@ def bestiar(app):
             if b.get("note"):
                 detail.append(k.muted(b["note"], size=14))
             detail.append(ft.Row([
-                k.button("Do souboje", lambda e, b=b: to_fight(app, b), expand=1, height=44),
                 k.button("Upravit", lambda e, b=b: edit_beast(app, b), primary=False, expand=1, height=44),
                 ft.IconButton(ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED, icon_color=l.ink, tooltip="Přidat obrázek",
                               on_click=lambda e, b=b: app.run(beast_image(app, b))),
@@ -92,15 +91,6 @@ def bestiar(app):
     fab = ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=l.accent, foreground_color=l.on_accent,
                                   tooltip="Nová bytost", on_click=lambda e: edit_beast(app, None))
     return Screen("Bestiář", [column(controls)], fab=fab)
-
-
-def to_fight(app, b: dict) -> None:
-    from .dice import foe_from_beast
-
-    foe = foe_from_beast(b)
-    foe["sys"] = app.char["system"]
-    app.ui.update({"foe": foe, "fight_log": [], "round": 1})
-    app.go("souboj")
 
 
 def edit_beast(app, b: dict | None) -> None:
@@ -157,7 +147,7 @@ def denik(app):
     if tab == "Poznámky":
         notes = sorted(c["notes"], key=lambda n: (not n.get("pinned"), -n.get("ts", 0)))
         for n in notes:
-            tag_color = {"Úkol": l.hi, "Postava": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
+            tag_color = {"Úkol": l.hi, "Osoba": l.mana, "Postava": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
             body.append(k.card(ft.Column([
                 ft.Row([k.badge((n.get("tag") or "Ostatní").upper() + (" · PŘIPNUTO" if n.get("pinned") else ""),
                                 color=tag_color, fg=l.on_accent if l.dark else l.card),
@@ -169,6 +159,9 @@ def denik(app):
         if not notes:
             body.append(k.empty("Zatím žádné zápisky. Zapiš si úkoly, jména a místa z dobrodružství."))
         fab_click = lambda e: edit_note(app, None)  # noqa: E731
+    elif tab == "Postava":
+        body += postava_tab(app, c)
+        fab_click = None
     else:
         cat = app.ui.get("img_cat", "Vše")
         imgs = [i for i in c["images"] if cat == "Vše" or i.get("category") == cat]
@@ -188,11 +181,41 @@ def denik(app):
                                 size=12))
         fab_click = lambda e: app.run(add_image(app))  # noqa: E731
 
-    controls = [k.pills(["Poznámky", "Obrázky"], tab, lambda v: app.go("denik", journal_tab=v), equal=True), *body,
-                ft.Container(height=70)]
+    controls = [k.pills(["Poznámky", "Obrázky", "Postava"], tab, lambda v: app.go("denik", journal_tab=v), equal=True),
+                *body, ft.Container(height=70)]
     fab = ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=l.accent, foreground_color=l.on_accent,
-                                  tooltip="Přidat", on_click=fab_click)
+                                  tooltip="Přidat", on_click=fab_click) if fab_click else None
     return Screen("Deník", [column(controls)], fab=fab)
+
+
+def postava_tab(app, c: dict) -> list[ft.Control]:
+    """Deník → Postava: přesvědčení (DrD) a příběh postavy."""
+    from .character import alignment_card
+
+    k = app.kit
+    l = app.look
+    out: list[ft.Control] = []
+    if c["system"] == "drd":
+        out += [k.section("Přesvědčení", icon=ft.Icons.BALANCE), alignment_card(app, c)]
+    story = (c.get("story") or "").strip()
+    out += [
+        k.section("Příběh postavy", k.link("Upravit", lambda e: edit_story(app, c)), icon=ft.Icons.HISTORY_EDU),
+        k.parch(ft.Column([
+            k.text("Příběh postavy", size=16, weight=ft.FontWeight.BOLD, head=True, color=l.ptext),
+            k.text(story or "Zatím nenapsáno. Klepni a napiš, odkud postava pochází, co ji formovalo a co hledá.",
+                   size=15, color=l.ptext if story else l.pmuted),
+        ], spacing=8)),
+    ]
+    out[-1] = ft.Container(out[-1], on_click=lambda e: edit_story(app, c), ink=True, data="story")
+    return out
+
+
+def edit_story(app, c: dict) -> None:
+    def save(v):
+        c["story"] = (v.get("story") or "").strip()
+        app.save(c)
+        app.refresh()
+    app.form("Příběh postavy", [("story", "Příběh postavy", c.get("story", ""), "long")], save)
 
 
 def edit_note(app, n: dict | None) -> None:

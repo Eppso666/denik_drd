@@ -484,6 +484,8 @@ def test_alignment_dialog_and_table(make_app):
     app.add_character(c)
     app.open_character(c["id"])
     drain(page)
+    assert "PŘESVĚDČENÍ" not in texts_of(page)  # přesvědčení je v Deníku → Postava
+    app.go("denik", journal_tab="Postava")
     assert "PŘESVĚDČENÍ" in texts_of(page) and "Nezvoleno" in texts_of(page)
     character.alignment_dialog(app, c)
     d = page.dialogs[-1]
@@ -591,3 +593,163 @@ def test_spinner_closes_even_with_notification(make_app):
     app.toast("PJ tě přijal do kampaně.")
     app.close_dialog()
     assert spinner not in page.dialogs and any(isinstance(d, ft.SnackBar) for d in page.dialogs)
+
+
+# ------------------------------------------------------------------------- úpravy z DRD_uprava.docx (25. 11.)
+
+def test_uvod_hrac_and_doupe(make_app):
+    from app.ui import start as st
+    app, page = make_app()
+    app.go("uvod")
+    t = texts_of(page)
+    assert "Hráč" in t and "Pán jeskyně" in t
+    tiles = [x for v in page.views for x in walk(v) if str(getattr(x, "data", "")).startswith("uvod:")]
+    tiles[0].on_click(Ev(tiles[0]))
+    assert app.screen == "start" and "Moje postavy" in texts_of(page)
+    assert "Vedu hru" not in texts_of(page)
+    app.back()
+    assert app.screen == "uvod"
+    tiles = [x for v in page.views for x in walk(v) if str(getattr(x, "data", "")).startswith("uvod:")]
+    tiles[1].on_click(Ev(tiles[1]))
+    assert app.screen == "doupe" and "Moje příběhy" in texts_of(page)
+
+
+def test_campaign_password_and_table(make_app):
+    from app.ui import start as st
+    app, page = make_app()
+    app.go("doupe")
+    st.new_campaign_dialog(app)
+    d = page.dialogs[-1]
+    fields = [x for x in walk(d) if isinstance(x, ft.TextField)]
+    fields[0].value = "Prokletí Černé věže"
+    fields[1].value = "drak1234"
+    fields[2].value = "drak1234"
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    camp = app.gm[app.gm_order[0]]
+    assert app.screen == "pj_kampan" and camp["name"] == "Prokletí Černé věže" and camp["system"] == "drd"
+    assert "drak1234" not in str(camp) and st.check_password(camp, "drak1234") and not st.check_password(camp, "x")
+    t = texts_of(page)
+    assert camp["code"] in t and not any("zamčena" in v.lower() for v in t) and "Žádá o vstup" not in t
+    # po novém spuštění se Stůl PJ bez hesla neotevře
+    app.gm_unlocked.clear()
+    app.go("pj_kampan")
+    assert app.screen == "doupe"
+    st.open_campaign(app, camp)
+    d = page.dialogs[-1]
+    pw = [x for x in walk(d) if isinstance(x, ft.TextField)][0]
+    pw.value = "spatne"
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    assert app.screen == "doupe"
+    st.open_campaign(app, camp)
+    d = page.dialogs[-1]
+    pw = [x for x in walk(d) if isinstance(x, ft.TextField)][0]
+    pw.value = "drak1234"
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    assert app.screen == "pj_kampan"
+    for screen in ("pj_kampan", "pj_souboj", "pj_bestiar", "pj_nastroje", "pj_poznamky"):
+        app.go(screen)
+        assert click_screen(app, page, screen) > 0
+    app.open_gm(camp["id"])
+    app.back()
+    assert app.screen == "doupe" and app.camp is None
+
+
+def test_postava_levels_custom_skill_and_companion(make_app):
+    from app.ui import character
+    app, page = make_app()
+    c = model.create_character("drd", "Arin", "Člověk", "Hraničář", [12, 15, 13, 14, 11])
+    app.add_character(c)
+    app.open_character(c["id"])
+    drain(page)
+    t = texts_of(page)
+    assert "Mimosmyslové schopnosti" not in " ".join(t) and "Společník" in t
+    assert "Vlastní dovednosti" not in t and "Souboj" not in t
+    assert not any(v.endswith(". úroveň") and "Hraničář" in v for v in t)
+    assert any(getattr(x, "data", None) == "level-badge" for v in page.views for x in walk(v))
+    plus = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "plus")
+    plus.on_click(Ev(plus))
+    d = page.dialogs[-1]
+    f = [x for x in walk(d) if isinstance(x, ft.TextField)]
+    f[0].value, f[1].value = "Plavání", "45"
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    assert c["abilities"][-1]["name"] == "Plavání" and "Vlastní dovednost" in texts_of(page)
+    w = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "weapon:0")
+    w.on_click(Ev(w))
+    assert app.screen == "kostky" and app.ui["dice_tab"] == "Souboj"
+    # válečník 1. úrovně nevidí schopnosti vyšších úrovní
+    v = model.create_character("drd", "Luke", "Kroll", "Válečník", [20, 8, 20, 2, 8])
+    app.add_character(v)
+    app.open_character(v["id"])
+    drain(page)
+    assert "od 2. úrovně" not in texts_of(page)
+    _ = character
+
+
+def test_kostky_souboj_defense(make_app):
+    from app.ui import dice
+    app, page = make_app()
+    c = model.create_character("drd", "Luke", "Kroll", "Válečník", [20, 8, 20, 2, 8])
+    c["items"] = [model.item("Kroužková zbroj", "Zbroj", equipped=True, quality=4),
+                  model.item("Štít", "Štít", equipped=True, defense=2),
+                  model.item("Meč", "Zbraň", equipped=True, attack=5, damage=0, defense=1)]
+    app.add_character(c)
+    app.open_character(c["id"])
+    app.go("kostky", dice_tab="Souboj")
+    t = texts_of(page)
+    assert "Otevřít souboj se soupeřem" not in t and "Souboj" in t and "Zbraň" not in t
+    w = model.weapons(c)[0]
+    parts = dice.defense_parts(c, w)
+    assert dice.defense_total(c, parts, set()) == model.oc(c, w)
+    box = next(x for v in page.views for x in walk(v) if str(getattr(x, "data", "")).startswith("def:stit"))
+    box.on_click(Ev(box))
+    assert dice.defense_total(c, parts, set(app.ui["def_off"][c["id"]])) == model.oc(c, w) - 2
+    btn = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "defend")
+    btn.on_click(Ev(btn))
+    assert app.ui["dice_last"]["label"] == "Obrana"
+
+
+def test_postup_backup_question_and_undo(make_app):
+    app, page = make_app()
+    c = model.create_character("drd", "Luke", "Kroll", "Válečník", [20, 8, 20, 2, 8])
+    app.add_character(c)
+    app.open_character(c["id"])
+    from app.ui import character
+    character.open_postup(app)
+    hp0 = app.ui["lvl"]["hp_max"]
+    btn = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "roll-hp")
+    btn.on_click(Ev(btn))
+    d = page.dialogs[-1]
+    d.actions[0].on_click(Ev(d.actions[0]))  # NE
+    drain(page)
+    assert app.ui["lvl"]["hp_max"] == hp0
+    btn = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "roll-hp")
+    btn.on_click(Ev(btn))
+    d = page.dialogs[-1]
+    d.actions[-1].on_click(Ev(d.actions[-1]))  # ANO
+    drain(page)
+    assert app.ui["lvl"]["hp_max"] > hp0
+    back = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "undo-roll")
+    back.on_click(Ev(back))
+    assert app.ui["lvl"]["hp_max"] == hp0
+
+
+def test_denik_postava_story(make_app):
+    from app.ui import journal
+    app, page = make_app()
+    c = model.create_character("drd", "Luke", "Kroll", "Válečník", [20, 8, 20, 2, 8])
+    app.add_character(c)
+    app.open_character(c["id"])
+    app.go("denik", journal_tab="Postava")
+    t = texts_of(page)
+    assert "Přesvědčení" in t and "Příběh postavy" in t
+    journal.edit_story(app, c)
+    d = page.dialogs[-1]
+    f = [x for x in walk(d) if isinstance(x, ft.TextField)][0]
+    f.value = "Vyrostl v krollím táboře."
+    d.actions[-1].on_click(Ev(d.actions[-1]))
+    drain(page)
+    assert c["story"] == "Vyrostl v krollím táboře." and "Vyrostl v krollím táboře." in texts_of(page)

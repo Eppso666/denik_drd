@@ -383,8 +383,6 @@ def ranger_section(app, c: dict) -> list[ft.Control]:
                                (f" a oboru ({', '.join(groups[1:])})" if len(groups) > 1 else "") +
                                ". Kouzla se nehází na úspěch – stačí magenergie.", size=13),
                        on_click=lambda e: app.go("kouzla"))]
-    elif c["level"] < 2:
-        out += [k.section("Kouzla"), k.empty("Hraničář kouzlí od 2. úrovně.")]
     out += abilities_section(app, c)
     return out
 
@@ -433,7 +431,7 @@ def abilities_section(app, c: dict) -> list[ft.Control]:
     slots = drd_hranicar.ability_slots(c["level"], c.get("branch"))
     have = c.setdefault("abilities_mind", [])
     if not slots and not have:
-        return [k.section("Mimosmyslové schopnosti"), k.empty("Od 4. úrovně (k% určí, kterou).")]
+        return []  # schopnosti se ukazují až od úrovně, na které je postava má
 
     def add(e):
         free = [a for a in drd_hranicar.ABILITIES if a not in [h["name"] for h in have]]

@@ -25,7 +25,9 @@ class Screen:
 MAX_WIDTH = 640  # maximální šířka obsahu v px (vzhled jako na telefonu i na PC)
 
 PARENTS: dict[str, str | None] = {
-    "start": None,
+    "uvod": None,
+    "start": "uvod",  # Hráč – Deník dobrodruha (moje postavy)
+    "doupe": "uvod",  # Pán jeskyně – Doupě pána jeskyně (moje příběhy)
     "generator": "start",
     "postava": None,
     "batoh": None,
@@ -40,10 +42,21 @@ PARENTS: dict[str, str | None] = {
     "alchymie": "postava",
     "druzina": "postava",
     "katalog": "batoh",
+    # Pán jeskyně (Stůl PJ) – kořeny se spodní navigací PJ, zpět vede do Doupěte
+    "pj_kampan": None,
+    "pj_souboj": None,
+    "pj_bestiar": None,
+    "pj_nastroje": None,
+    "pj_poznamky": None,
 }
+PJ_ROOTS = ("pj_kampan", "pj_souboj", "pj_bestiar", "pj_nastroje", "pj_poznamky")
+COMMON = ("uvod", "start", "doupe", "generator")  # společné obrazovky v neutrálním vzhledu
 NAV = [("postava", "Postava", ft.Icons.PERSON_OUTLINE), ("batoh", "Batoh", ft.Icons.BACKPACK_OUTLINED),
        ("kostky", "Kostky", ft.Icons.CASINO_OUTLINED), ("bestiar", "Bestiář", ft.Icons.PETS_OUTLINED),
        ("denik", "Deník", ft.Icons.MENU_BOOK_OUTLINED)]
+PJ_NAV = [("pj_kampan", "Kampaň", ft.Icons.GROUPS_OUTLINED), ("pj_souboj", "Souboj", ft.Icons.SPORTS_MARTIAL_ARTS),
+          ("pj_bestiar", "Bestiář", ft.Icons.PETS_OUTLINED), ("pj_nastroje", "Nástroje", ft.Icons.AUTO_FIX_HIGH),
+          ("pj_poznamky", "Poznámky", ft.Icons.HISTORY_EDU_OUTLINED)]
 
 
 class App:
@@ -57,7 +70,7 @@ class App:
         self.bestiary: dict[str, list[dict]] = {"dh": [], "drd": []}
         self.settings: dict[str, Any] = {"dh_exploding": True}
         self.active: str | None = None
-        self.screen = "start"
+        self.screen = "uvod"
         self.ui: dict[str, Any] = {}
         # Pozice posuvníku: překreslení téže obrazovky (krokování +/−, výběr karty) nesmí skočit nahoru.
         self._scroll: dict[str, float] = {}
@@ -66,6 +79,12 @@ class App:
         self._loading_images: set[str] = set()
         self._sync_client = None
         self._sync_loop = False
+        # Pán jeskyně: kampaně v tomto zařízení (bez postavy) chráněné heslem; zatím bez propojení s hráči
+        self.gm: dict[str, dict] = {}
+        self.gm_order: list[str] = []
+        self.gm_active: str | None = None
+        self.gm_unlocked: set[str] = set()
+        self.pj_content: dict = {}
 
     # --- stav ----------------------------------------------------------------
     @property
@@ -73,13 +92,21 @@ class App:
         return self.chars.get(self.active) if self.active else None
 
     @property
+    def camp(self) -> dict | None:
+        """Kampaň PJ otevřená na Stole PJ."""
+        return self.gm.get(self.gm_active) if self.gm_active else None
+
+    @property
     def system(self) -> str | None:
+        if self.screen in PJ_ROOTS:
+            camp = self.camp
+            return camp["system"] if camp else None
         c = self.char
-        return c["system"] if c and self.screen not in ("start", "generator") else None
+        return c["system"] if c and self.screen not in COMMON else None
 
     @property
     def look(self) -> theme.Look:
-        if self.screen == "generator":  # společná obrazovka: neutrální vzhled, hra se vybírá kartami
+        if self.screen in COMMON:  # společné obrazovky: neutrální vzhled, hra se vybírá kartami
             return theme.for_system(None)
         return theme.for_system(self.system)
 
@@ -99,6 +126,14 @@ class App:
         self.bestiary["dh"] = await self.store.get_json("bestiary.dh", [])
         self.bestiary["drd"] = await self.store.get_json("bestiary.drd", [])
         self.settings.update(await self.store.get_json("settings", {}))
+        self.gm_order = await self.store.get_json("gm_order", [])
+        for cid in list(self.gm_order):
+            camp = await self.store.get_json("gm." + cid, None)
+            if camp:
+                self.gm[cid] = camp
+            else:
+                self.gm_order.remove(cid)
+        self.pj_content = await self.store.get_json("pj_content", {})
         if any(sync.is_remote(sync.campaign(c)) for c in self.chars.values()):
             self.start_sync_loop()
 
@@ -188,6 +223,42 @@ class App:
         await self.store.remove("char." + cid)
         await self.store.set_json("order", self.order)
 
+    # --- Pán jeskyně ---------------------------------------------------------
+    def save_gm(self, camp: dict) -> None:
+        async def _save():
+            try:
+                await self.store.set_json("gm." + camp["id"], camp)
+                await self.store.set_json("gm_order", self.gm_order)
+            except Exception as ex:  # pragma: no cover
+                self.toast(f"Uložení se nepovedlo: {ex}")
+        self.page.run_task(_save)
+
+    def add_gm(self, camp: dict) -> None:
+        self.gm[camp["id"]] = camp
+        if camp["id"] not in self.gm_order:
+            self.gm_order.insert(0, camp["id"])
+        self.save_gm(camp)
+
+    async def delete_gm(self, cid: str) -> None:
+        camp = self.gm.pop(cid, None)
+        if cid in self.gm_order:
+            self.gm_order.remove(cid)
+        for m in (camp or {}).get("maps", []):
+            if m.get("ref"):
+                await self.store.delete_image(m["ref"])
+        await self.store.remove("gm." + cid)
+        await self.store.set_json("gm_order", self.gm_order)
+        self.gm_unlocked.discard(cid)
+        if self.gm_active == cid:
+            self.gm_active = None
+
+    def open_gm(self, cid: str) -> None:
+        """Otevře Stůl PJ (heslo už bylo ověřeno)."""
+        self.gm_active = cid
+        self.gm_unlocked.add(cid)
+        self.active = None
+        self.go("pj_kampan")
+
     # --- navigace ------------------------------------------------------------
     def open_character(self, cid: str) -> None:
         self.active = cid
@@ -202,7 +273,10 @@ class App:
         parent = PARENTS.get(self.screen)
         if parent:
             self.go(parent)
-        elif self.screen != "start":
+        elif self.screen in PJ_ROOTS:
+            self.gm_active = None
+            self.go("doupe")
+        elif self.screen != "uvod":
             self.active = None
             self.go("start")
 
@@ -217,16 +291,20 @@ class App:
         k = self.kit
         sc: Screen = screens.build(self)
         parent = PARENTS.get(self.screen)
-        is_char_root = self.system is not None and parent is None
+        pj_root = self.screen in PJ_ROOTS
+        is_char_root = self.system is not None and parent is None and not pj_root
         leading = None
-        if parent or self.screen not in ("start", "postava", "batoh", "kostky", "bestiar", "denik"):
+        if parent or self.screen not in ("uvod", "postava", "batoh", "kostky", "bestiar", "denik", *PJ_ROOTS):
             leading = ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=look.ink, on_click=lambda e: self.back(),
                                     tooltip="Zpět")
         elif is_char_root:
             leading = ft.IconButton(icon=ft.Icons.PEOPLE_OUTLINE, icon_color=look.ink, tooltip="Výběr postavy",
                                     on_click=lambda e: self.back())
+        elif pj_root:
+            leading = ft.IconButton(icon=ft.Icons.PEOPLE_OUTLINE, icon_color=look.ink, tooltip="Moje příběhy",
+                                    on_click=lambda e: self.back())
         header = self._header(look, sc, leading)
-        nav = self._nav(look) if is_char_root else None
+        nav = self._nav(look, PJ_NAV if pj_root else NAV) if (is_char_root or pj_root) else None
         # Na širokém displeji (PC) drží aplikace šířku telefonu/tabletu a je vycentrovaná;
         # na telefonu je MAX_WIDTH větší než displej, takže se nic nemění.
         body = [header, ft.Container(ft.Column(sc.controls, spacing=0, expand=True), expand=True)]
@@ -275,10 +353,10 @@ class App:
         return ft.Stack([bar, ft.Row([gem], alignment=ft.MainAxisAlignment.CENTER, left=0, right=0, bottom=-4)],
                         clip_behavior=ft.ClipBehavior.NONE, height=60)
 
-    def _nav(self, look) -> ft.Control:
+    def _nav(self, look, nav=None) -> ft.Control:
         """Spodní navigace podle návrhu: aktivní položka svítí akcentem."""
         items = []
-        for key, label, icon in NAV:
+        for key, label, icon in nav or NAV:
             on = key == self.screen
             fg = look.on_accent if on else look.ink
             items.append(ft.Container(
@@ -383,7 +461,8 @@ class App:
 
     def form(self, title: str, fields: list[tuple], on_save: Callable[[dict], Any], save_label: str = "Uložit",
              on_delete: Callable[[], Any] | None = None) -> None:
-        """Obecný formulář. Pole: (klíč, popisek, hodnota, druh[, volby]). Druhy: text, long, int, float, bool, choice."""
+        """Obecný formulář. Pole: (klíč, popisek, hodnota, druh[, volby]). Druhy: text, long, int, float, bool, choice,
+        password (skryté heslo), info (jen vysvětlující text)."""
         look = self.look
         k = self.kit
         controls: dict[str, ft.Control] = {}
@@ -392,6 +471,10 @@ class App:
             key, label, value, kind = f[0], f[1], f[2], f[3]
             if kind == "bool":
                 ctrl = ft.Switch(label=label, value=bool(value), active_color=look.hi)
+            elif kind == "info":
+                controls[key] = None
+                body.append(k.muted(str(value), size=12))
+                continue
             elif kind == "choice":
                 opts = f[4]
                 ctrl = ft.Dropdown(label=label, value=str(value) if value is not None else None,
@@ -403,6 +486,7 @@ class App:
                     multiline=kind == "long", min_lines=3 if kind == "long" else None,
                     max_lines=8 if kind == "long" else 1,
                     keyboard_type=ft.KeyboardType.NUMBER if kind in ("int", "float") else ft.KeyboardType.TEXT,
+                    password=kind == "password", can_reveal_password=kind == "password",
                     border_color=look.frame, focused_border_color=look.hi, color=look.ink,
                     cursor_color=look.hi,
                 )
@@ -413,6 +497,8 @@ class App:
             out: dict = {}
             for f in fields:
                 key, kind = f[0], f[3]
+                if kind == "info":
+                    continue
                 c = controls[key]
                 v = c.value
                 if kind == "int":

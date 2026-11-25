@@ -103,45 +103,138 @@ def _free_dice(app, sides_list: list[str], count: int = 1) -> ft.Control:
     return ft.Column(rows, spacing=8)
 
 
+def defense_parts(c: dict, w: dict) -> list[dict]:
+    """Co se počítá do obrany: vybavená zbroj, štít a obrana zbraně (každá položka jde vypnout)."""
+    is_dh = c["system"] == "dh"
+    parts: list[dict] = []
+    worn = model.equipped(c, "Zbroj")
+    for i in worn:
+        parts.append({"id": "zbroj:" + str(i.get("id") or i.get("name")), "name": i.get("name", "Zbroj"),
+                      "sub": f"kvalita zbroje {fmt(int(i.get('quality', 0)))}", "kind": "armor",
+                      "value": int(i.get("quality", 0))})
+    if not worn and not is_dh:
+        parts.append({"id": "bez-zbroje", "name": "Bez zbroje", "sub": "kvalita zbroje 1 (Tabulka kvality zbroje)",
+                      "kind": "armor", "value": model.armor_quality(c)})
+    shield = model.shield_for(c, w)
+    for i in model.equipped(c, "Štít"):
+        parts.append({"id": "stit:" + str(i.get("id") or i.get("name")), "name": i.get("name", "Štít"),
+                      "sub": f"obrana {fmt(shield)}" + ("" if shield else " (s touto zbraní se nepočítá)"),
+                      "kind": "shield", "value": shield})
+        shield = 0  # štít se počítá jen jednou
+    parts.append({"id": "zbran:" + w.get("name", ""), "name": f"{w['name']} – {'obrana' if is_dh else 'OZ'}",
+                  "sub": f"obrana zbraně {fmt(int(w.get('defense', 0)))}", "kind": "weapon",
+                  "value": int(w.get("defense", 0))})
+    return parts
+
+
+def defense_total(c: dict, parts: list[dict], off: set) -> int:
+    """Obranné číslo z vybraných položek (DrD: OBR + zbroj, nejméně 0, + OZ + štít; DH podle pravidel DH)."""
+    on = [p for p in parts if p["id"] not in off]
+    armor = sum(p["value"] for p in on if p["kind"] == "armor")
+    shield = sum(p["value"] for p in on if p["kind"] == "shield")
+    wdef = sum(p["value"] for p in on if p["kind"] == "weapon")
+    if c["system"] == "drd":
+        return max(0, drd.bonus(c["attrs"][1]) + armor) + wdef + shield
+    return dh.defense_oc(c["attrs"], armor, wdef, shield)
+
+
 def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
+    """Kostky → Souboj: útok vybranou zbraní a obrana složená z vybavených předmětů."""
     c = app.char
     k = app.kit
     l = app.look
-    r = model.rules(c["system"])
+    is_dh = c["system"] == "dh"
     ws = model.weapons(c)
-    wi = min(app.ui.get("dice_weapon", 0), len(ws) - 1)
+    wi = max(0, min(app.ui.get("dice_weapon", 0), len(ws) - 1))
     rows = []
     for idx, w in enumerate(ws):
         uc = model.uc(c, w)
-        rows.append(k.card(ft.Row([
-            ft.Column([k.text(w["name"], size=15, weight=ft.FontWeight.W_600),
-                       k.muted("střelná" if w.get("ranged") else "boj tváří v tvář")], spacing=2, expand=True),
-            k.text(f"ÚČ {uc}", size=20, weight=ft.FontWeight.BOLD, head=True),
-        ]), accent=idx == wi, on_click=lambda e, idx=idx: app.go("kostky", dice_weapon=idx), padding=12))
+        on = idx == wi
+        stats = (f"útočnost {w.get('attack', 0)} · zranění {fmt(int(w.get('damage', 0)))}" if is_dh else
+                 f"SZ {w.get('attack', 0)} · útočnost {fmt(int(w.get('damage', 0)))} · OZ {fmt(int(w.get('defense', 0)))}")
+        rows.append(ft.Container(ft.Row([
+            ft.Column([k.text(w["name"], size=16, weight=ft.FontWeight.BOLD, head=True),
+                       k.muted(stats + (" · střelná" if w.get("ranged") else ""), size=12,
+                               color="#ffffff" if on else None)], spacing=2, expand=True),
+            k.text(f"ÚČ {uc}", size=18, weight=ft.FontWeight.BOLD, head=True),
+        ], vertical_alignment=ft.CrossAxisAlignment.CENTER), padding=ft.Padding.symmetric(horizontal=12, vertical=10),
+            border_radius=ft.BorderRadius.all(l.radius),
+            gradient=ft.LinearGradient(begin=ft.Alignment.CENTER_LEFT, end=ft.Alignment.CENTER_RIGHT,
+                                       colors=[l.accent, l.card2], stops=[0.0, 0.75]) if on else None,
+            bgcolor=None if on else l.card, border=ft.Border.all(2 if on else 1, l.orn if on else l.border),
+            shadow=k.glow(14) if on else None, on_click=lambda e, idx=idx: app.go("kostky", dice_weapon=idx),
+            ink=True, data=f"dice-weapon:{idx}"))
     w = ws[wi]
     uc = model.uc(c, w)
-
     pen, why = model.combat_penalty(c)
+    die = "6+" if exploding else "6"
 
     def attack(e):
         rolls = open_d6() if exploding else [d(6)]
         total = uc + sum(rolls) + pen
         _push(app, f"Útok · {w['name']}", total, f"ÚČ {uc} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})" +
-              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi, die="6+" if exploding else "6")
+              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi, die=die)
 
-    out = rows + [
-        k.muted(f"Útok = ÚČ + {'k6+ (šestka se hází znovu)' if exploding else 'k6'}. Obránce hází OČ + "
-                f"{'k6+' if exploding else 'k6'}; zasáhneš, když máš víc."),
-        k.button(f"Hodit útok · {w['name']}", attack),
-        k.button("Otevřít souboj se soupeřem", lambda e: app.go("souboj"), primary=False),
-    ]
-    if c["system"] == "dh":
-        def toggle(e):
+    parts = defense_parts(c, w)
+    off_all = app.ui.setdefault("def_off", {})
+    off = set(off_all.get(c["id"], []))
+    total = defense_total(c, parts, off)
+
+    def toggle(pid):
+        def h(e):
+            cur = set(off_all.get(c["id"], []))
+            cur.symmetric_difference_update({pid})
+            off_all[c["id"]] = sorted(cur)
+            app.refresh()
+        return h
+
+    def defend(e):
+        rolls = open_d6() if exploding else [d(6)]
+        val = total + sum(rolls) + pen
+        _push(app, "Obrana", val, f"OČ {total} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})" +
+              (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi, die=die)
+
+    checks = []
+    for p in parts:
+        on = p["id"] not in off
+        checks.append(ft.Container(ft.Row([
+            ft.Container(ft.Icon(ft.Icons.CHECK, size=14, color="#ffffff") if on else None, width=22, height=22,
+                         alignment=ft.Alignment.CENTER, border_radius=ft.BorderRadius.all(4),
+                         bgcolor=l.accent if on else None, border=ft.Border.all(1 if on else 2, l.orn if on else l.frame)),
+            ft.Column([k.text(p["name"], size=15, weight=ft.FontWeight.BOLD, max_lines=1), k.muted(p["sub"], size=12)],
+                      spacing=1, expand=True),
+            k.text(fmt(p["value"]), size=15, weight=ft.FontWeight.BOLD, head=True, color=None if on else l.muted),
+        ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.Padding.symmetric(horizontal=12, vertical=9), on_click=toggle(p["id"]), ink=True,
+            border=ft.Border.only(bottom=ft.BorderSide(1, l.border)), data="def:" + p["id"]))
+    base = (f"OBR {fmt(drd.bonus(c['attrs'][1]))}" if not is_dh else "ZO")
+    sel_txt = " · ".join(f"{p['name'].split(' – ')[0]} {fmt(p['value'])}" for p in parts if p["id"] not in off)
+    defend_btn = ft.Container(ft.Row([
+        ft.Icon(ft.Icons.SHIELD_OUTLINED, size=26, color=l.on_accent),
+        ft.Column([k.text("Hodit obranu", size=16, weight=ft.FontWeight.BOLD, head=True, color=l.on_accent),
+                   k.text(f"{base}" + (f" · {sel_txt}" if sel_txt else "") + f" + {'k6+' if exploding else 'k6'}",
+                          size=12, color=l.on_accent, max_lines=2)], spacing=1, expand=True),
+        k.text(f"OČ {total}", size=26, weight=ft.FontWeight.BOLD, head=True, color=l.on_accent),
+    ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.Padding.symmetric(horizontal=14, vertical=12), border_radius=ft.BorderRadius.all(l.radius),
+        gradient=k.grad(l.accent2, l.accent), border=ft.Border.all(1, l.orn), shadow=k.glow(14), on_click=defend,
+        ink=True, data="defend")
+
+    out = [k.section("Útok", icon=ft.Icons.SPORTS_KABADDI), *rows,
+           k.button(f"Hodit útok · {w['name']}", attack, icon=ft.Icons.CASINO_OUTLINED, height=50),
+           k.section("Obrana", icon=ft.Icons.SHIELD_OUTLINED), defend_btn,
+           k.framed(ft.Column([k.muted("CO SE POČÍTÁ DO OBRANY", size=12, weight=ft.FontWeight.BOLD),
+                               ft.Column(checks, spacing=0)], spacing=6),
+                    padding=ft.Padding.symmetric(horizontal=2, vertical=10)),
+           k.muted(f"Útok = ÚČ + {'k6+ (šestka se hází znovu)' if exploding else 'k6'}; obrana = OČ + "
+                   f"{'k6+' if exploding else 'k6'}. Klepnutím na předmět ho z obrany vyřadíš nebo vrátíš.", size=12)]
+    if is_dh:
+        def toggle_x(e):
             app.settings["dh_exploding"] = e.control.value
             app.save(settings=True)
             app.refresh()
-        out.insert(len(rows), ft.Switch(label="Šestka se hází znovu (k6+)", value=exploding, active_color=l.hi,
-                                        on_change=toggle))
+        out.insert(1 + len(rows), ft.Switch(label="Šestka se hází znovu (k6+)", value=exploding, active_color=l.hi,
+                                            on_change=toggle_x))
     return out
 
 
@@ -152,7 +245,7 @@ def kostky(app):
     k = app.kit
     l = app.look
     is_dh = c["system"] == "dh"
-    tabs = ["Dovednost", "Zbraň", "Volný hod"] if is_dh else ["Kostky", "Zbraň", "Schopnost", "Past"]
+    tabs = ["Dovednost", "Souboj", "Volný hod"] if is_dh else ["Kostky", "Souboj", "Schopnost", "Past"]
     tab = app.ui.get("dice_tab")
     if tab not in tabs:
         tab = tabs[0]
@@ -196,7 +289,7 @@ def kostky(app):
                   f" – {'Úspěch' if ok else 'Neúspěch'} (obtížnost {diff})", l.ok if ok else l.bad, die="10")
         body.append(k.button(f"Hodit k10 · {sel}", roll_skill))
 
-    elif tab == "Zbraň":
+    elif tab == "Souboj":
         body += _weapon_tab(app, app.settings.get("dh_exploding", True) if is_dh else True)
 
     elif tab == "Schopnost":

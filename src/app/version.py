@@ -1,9 +1,19 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.14.0"
+VERSION = "0.15.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.15.0": [
+        "Úvod: Hráč (moje postavy) nebo Pán jeskyně (Doupě pána jeskyně – moje příběhy).",
+        "Pán jeskyně zakládá kampaň s názvem a heslem; Stůl PJ se bez hesla neotevře. Hráči se připojí jen kódem "
+        "kampaně (propojení s hráči připravujeme).",
+        "Postava: úroveň v kroužku u portrétu, schopnosti jen do aktuální úrovně, „+“ pro vlastní dovednost, "
+        "Společník u hraničáře a kouzelníka; klepnutí na zbraň otevře Kostky → Souboj.",
+        "Kostky → Souboj: útok vybranou zbraní a obrana složená z vybavených předmětů.",
+        "Postup na úroveň: Hod na životy a magenergii s dotazem na zálohu a tlačítkem Zpět.",
+        "Deník → Postava: přesvědčení a příběh postavy.",
+    ],
     "0.14.0": [
         "Nová úvodní obrazovka a obrazovka Nová postava podle grafického návrhu.",
         "Stůl PJ a propojení u stolu jsou zatím odložené (vrátí se před zveřejněním aplikace); "
