@@ -45,7 +45,8 @@ def _effect_box(app, c: dict, name: str, spent: int) -> ft.Control | None:
     l = app.look
     n_dice, sides, add = e["dice"]
     times = drd_ucinky.count(name, spent)
-    unit = {"blesk": "blesky", "kus": "kusy"}.get(e.get("per"))
+    forms = {"blesk": ("blesk", "blesky", "blesků"), "kus": ("kus", "kusy", "kusů")}.get(e.get("per"))
+    unit = (forms[0] if times == 1 else forms[1] if 1 < times < 5 else forms[2]) if forms else None
     title = ft.Text(size=15, weight=ft.FontWeight.BOLD, font_family=k.hf, color=l.ink)
     area = ft.TextField(label="Čtverečních sáhů terče", value="1", keyboard_type=ft.KeyboardType.NUMBER,
                         width=200, border_color=l.frame, focused_border_color=l.hi, color=l.ink) \
@@ -138,11 +139,13 @@ def show(app, c: dict, name: str, spent: int, ok: bool, roll: int | None = None,
     body.append(_mana_line(app, c, spent))
 
     def done(e):
-        app.close_dialog()
-        app.refresh()
-    app.page.show_dialog(ft.AlertDialog(
+        app.close_dialog(dlg)
+        app.refresh()  # překreslí se až po dozavření okna (App.render)
+
+    dlg = ft.AlertDialog(
         bgcolor=l.card, content=ft.Container(ft.Column(body, spacing=12, tight=True, scroll=ft.ScrollMode.AUTO),
                                              width=360),
         actions=[ft.FilledButton(content=ft.Text("Hotovo" if ok else "Zavřít"), on_click=done,
                                  style=ft.ButtonStyle(bgcolor=l.accent, color=l.on_accent))],
-        scrollable=True, data="spell-result"))
+        scrollable=True, data="spell-result")
+    app.open_dialog(dlg)

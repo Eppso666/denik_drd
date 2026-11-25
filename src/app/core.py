@@ -285,6 +285,20 @@ class App:
     def render(self) -> None:
         from .ui import screens
 
+        # Překreslení (výměna pohledů) ve chvíli, kdy se zavírá dialog, Flet rozbije: zavíraný dialog
+        # zůstane viset nebo se po zavření dalšího vrátí. Proto počkáme, až se dozavírá.
+        wait = getattr(self, "_closing_until", 0) - time.monotonic()
+        if wait > 0 and getattr(self.page, "_dialogs", None) is not None:
+            if not getattr(self, "_render_pending", False):
+                self._render_pending = True
+
+                async def later():
+                    await asyncio.sleep(wait + 0.05)
+                    self._render_pending = False
+                    self.render()
+                self.page.run_task(later)
+            return
+
         look = self.look
         theme.apply(self.page, look, self.fonts)
         k = self.kit
@@ -417,6 +431,10 @@ class App:
                 await res
             self.page.run_task(runner)
 
+    def open_dialog(self, dialog: Any) -> None:
+        """Otevře dialog (i hned po zavření jiného – to Flet zvládne; vadí jen překreslení, viz render)."""
+        self.page.show_dialog(dialog)
+
     def toast(self, message: str) -> None:
         self.page.show_dialog(ft.SnackBar(ft.Text(message)))
 
@@ -432,6 +450,7 @@ class App:
                 if dlg is not None and getattr(dlg, "open", False):
                     dlg.open = False
                     dlg.update()
+                    self._closing_until = time.monotonic() + 0.4
                 return
             lst = getattr(page, "dialogs", None)
             if isinstance(lst, list):  # testovací stránka
@@ -545,7 +564,7 @@ class App:
         actions += [ft.TextButton("Zrušit", on_click=lambda e: self.close_dialog()),
                     ft.FilledButton(content=ft.Text(save_label), on_click=save,
                                     style=ft.ButtonStyle(bgcolor=look.accent, color=look.on_accent))]
-        self.page.show_dialog(ft.AlertDialog(
+        self.open_dialog(ft.AlertDialog(
             title=k.text(title, size=19, weight=ft.FontWeight.BOLD, head=True), bgcolor=look.card,
             content=ft.Container(ft.Column(body, spacing=10, tight=True, scroll=ft.ScrollMode.AUTO), width=360),
             actions=actions, scrollable=True,
