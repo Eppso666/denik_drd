@@ -421,8 +421,9 @@ class Client:
                            prefer="return=minimal")
 
     async def gm_delete(self, camp: dict) -> None:
+        """Ukončí kampaň na serveru pro všechny (hráčům se při synchronizaci odpojí)."""
         if camp.get("sid"):
-            await self.req("DELETE", f"/rest/v1/campaigns?id=eq.{camp['sid']}")
+            await self.req("DELETE", f"/rest/v1/campaigns?id=eq.{camp['sid']}", prefer="return=minimal")
 
     async def gm_share_image(self, camp: dict, data: bytes, title: str) -> None:
         sid = camp["sid"]

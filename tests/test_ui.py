@@ -827,3 +827,21 @@ def test_password_hash_without_openssl(monkeypatch):
     assert st._pbkdf2(b"drak1234", salt, 1000) == fast
     camp = {"pw": st.hash_password("drak1234")}
     assert st.check_password(camp, "drak1234") and not st.check_password(camp, "drak123")
+
+
+def test_delete_campaign_ends_it_for_players(make_app):
+    """Smazání kampaně PJ bez spojení se serverem kampaň nesmaže – hráčům by zůstala přístupná."""
+    from app.ui import pj, start as st
+    app, page = make_app()
+    camp = st.new_gm_campaign("drd", "Věž", "drak1234")
+    camp["sid"], camp["code"] = "camp-x", "K7P-42Q"
+    app.add_gm(camp)
+    app.run(pj.end_campaign(app, camp))
+    drain(page)
+    assert camp["id"] in app.gm and any("Kampaň se nepodařilo ukončit" in str(getattr(x, "value", ""))
+                                    for d in page.dialogs for x in walk(d))
+    local = st.new_gm_campaign("drd", "Jen tady", "drak1234")
+    app.add_gm(local)
+    app.run(pj.end_campaign(app, local))
+    drain(page)
+    assert local["id"] not in app.gm and app.screen == "doupe"

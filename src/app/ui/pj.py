@@ -167,6 +167,22 @@ def publish(app, camp, then=None) -> None:
     app.run(run())
 
 
+async def end_campaign(app, camp) -> None:
+    """Smaže kampaň PJ: nejdřív na serveru (hráčům se při synchronizaci ukončí), pak v tomto zařízení.
+    Když server nejde zastihnout, kampaň zůstane – jinak by hráčům zůstala přístupná."""
+    if camp.get("sid"):
+        try:
+            await app.sync.gm_delete(camp)
+        except (sync.SyncError, OSError) as ex:
+            info(app, "Kampaň se nepodařilo ukončit",
+                 (str(ex) if isinstance(ex, sync.SyncError) else "Bez připojení k internetu.") +
+                 " Hráčům by zůstala přístupná, proto zůstává i tady. Zkus to znovu, až bude spojení.")
+            return
+    await app.delete_gm(camp["id"])
+    app.go("doupe")
+    app.toast("Kampaň ukončena i pro hráče. Postavy jim zůstaly." if camp.get("sid") else "Kampaň smazána.")
+
+
 def share_code(app, camp) -> None:
     text = (f"Kód kampaně „{camp['name']}“ ({SYS_NAME[camp['system']]}): {camp.get('code')}. "
             "V Deníku dobrodruha otevři svou postavu → Družina → Připojit se.")
@@ -280,14 +296,7 @@ def _edit_campaign(app, camp) -> None:
             app.run(up())
 
     async def delete():
-        if camp.get("sid"):
-            try:
-                await app.sync.gm_delete(camp)
-            except (sync.SyncError, OSError):
-                app.toast("Na serveru se kampaň smazat nepodařilo, smazána jen v tomto zařízení.")
-        await app.delete_gm(camp["id"])
-        app.go("doupe")
-        app.toast("Kampaň smazána. Hráčům postavy zůstaly.")
+        await end_campaign(app, camp)
     app.form("Upravit kampaň", [("name", "Název kampaně", camp["name"], "text"),
                                 ("session", "Sezení", camp["session"], "int"),
                                 ("pw_old", "Staré heslo (jen při změně hesla)", "", "password"),

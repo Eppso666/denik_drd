@@ -175,11 +175,12 @@ def campaign_card(app, camp: dict) -> ft.Control:
     game = SYS[camp["system"]].NAME
 
     def delete(e):
+        from .pj import end_campaign
+
         async def do():
-            await app.delete_gm(camp["id"])
-            app.render()
-        app.confirm("Smazat kampaň?", f"„{camp['name']}“ bude smazána i s poznámkami PJ. Postavy hráčů zůstanou.",
-                    do)
+            await end_campaign(app, camp)
+        app.confirm("Smazat kampaň?", f"„{camp['name']}“ bude smazána i s poznámkami PJ a ukončí se i hráčům "
+                                      "(odpojí se jim při další synchronizaci). Postavy hráčů zůstanou.", do)
 
     badge = ft.Container(ft.Icon(ft.Icons.WORKSPACE_PREMIUM_OUTLINED, size=26, color="#ffffff"), width=50, height=50,
                          alignment=ft.Alignment.CENTER, border_radius=ft.BorderRadius.all(8),
