@@ -1,9 +1,13 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.17.0"
+VERSION = "0.17.1"
 
 CHANGES: dict[str, list[str]] = {
+    "0.17.1": [
+        "Kostky → Souboj (DrD): přepínač „Už jsem se v kole bránil / nebráním se“ – místo obrany zbraně −3.",
+        "Štít dává v Dračím doupěti vždy +1 k obraně (podle pravidel), i když má předmět zapsanou jinou hodnotu.",
+    ],
     "0.17.0": [
         "Poznámky a mapy Pána jeskyně jsou v zařízení i v záloze zašifrované heslem kampaně "
         "(obrázky map zůstávají nešifrované).",

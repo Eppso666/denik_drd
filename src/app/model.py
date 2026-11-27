@@ -210,8 +210,16 @@ def armor_quality(c: dict) -> int:
     return sum(int(i.get("quality", 0)) for i in worn)
 
 
+def shield_value(c: dict, i: dict) -> int:
+    """Bonus štítu k obraně. DrD: vždy +1 (PPZ, Souboj – Obrana); DH: hodnota předmětu."""
+    return 1 if c.get("system") == "drd" else int(i.get("defense", 0))
+
+
 def shield_bonus(c: dict) -> int:
-    return sum(int(i.get("defense", 1 if c["system"] == "drd" else 0)) for i in equipped(c, "Štít"))
+    shields = equipped(c, "Štít")
+    if c.get("system") == "drd":
+        return 1 if shields else 0  # štít se počítá jednou a vždy +1
+    return sum(shield_value(c, i) for i in shields)
 
 
 def items_weight(c: dict) -> float:

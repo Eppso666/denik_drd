@@ -103,8 +103,12 @@ def _free_dice(app, sides_list: list[str], count: int = 1) -> ft.Control:
     return ft.Column(rows, spacing=8)
 
 
-def defense_parts(c: dict, w: dict) -> list[dict]:
-    """Co se počítá do obrany: vybavená zbroj, štít a obrana zbraně (každá položka jde vypnout)."""
+SPENT_OZ = -3  # DrD: obranu zbraní už v kole vyčerpal / nechce se bránit → místo OZ −3 (PPZ, Hod na obranu)
+
+
+def defense_parts(c: dict, w: dict, spent: bool = False) -> list[dict]:
+    """Co se počítá do obrany: vybavená zbroj, štít a obrana zbraně (každá položka jde vypnout).
+    spent (DrD): obranu zbraní už v tomto kole vyčerpal nebo se nebrání → místo obrany zbraně −3."""
     is_dh = c["system"] == "dh"
     parts: list[dict] = []
     worn = model.equipped(c, "Zbroj")
@@ -121,9 +125,13 @@ def defense_parts(c: dict, w: dict) -> list[dict]:
                       "sub": f"obrana {fmt(shield)}" + ("" if shield else " (s touto zbraní se nepočítá)"),
                       "kind": "shield", "value": shield})
         shield = 0  # štít se počítá jen jednou
-    parts.append({"id": "zbran:" + w.get("name", ""), "name": f"{w['name']} – {'obrana' if is_dh else 'OZ'}",
-                  "sub": f"obrana zbraně {fmt(int(w.get('defense', 0)))}", "kind": "weapon",
-                  "value": int(w.get("defense", 0))})
+    if spent and not is_dh:
+        parts.append({"id": "bez-obrany-zbrani", "name": "Bez obrany zbraní",
+                      "sub": "už ses v kole bránil / nebráníš se – místo OZ −3", "kind": "weapon", "value": SPENT_OZ})
+    else:
+        parts.append({"id": "zbran:" + w.get("name", ""), "name": f"{w['name']} – {'obrana' if is_dh else 'OZ'}",
+                      "sub": f"obrana zbraně {fmt(int(w.get('defense', 0)))}", "kind": "weapon",
+                      "value": int(w.get("defense", 0))})
     return parts
 
 
@@ -175,7 +183,8 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
         _push(app, f"Útok · {w['name']}", total, f"ÚČ {uc} + {'k6+' if exploding else 'k6'} ({roll_expr(rolls)})" +
               (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi, die=die)
 
-    parts = defense_parts(c, w)
+    spent = bool(app.ui.get("def_spent")) and not is_dh
+    parts = defense_parts(c, w, spent)
     off = set(c.get("def_off") or [])  # vyřazené z obrany – uloží se k postavě
     total = defense_total(c, parts, off)
 
@@ -223,6 +232,9 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
     out = [k.section("Útok", icon=ft.Icons.SPORTS_KABADDI), *rows,
            k.button(f"Hodit útok · {w['name']}", attack, icon=ft.Icons.CASINO_OUTLINED, height=50),
            k.section("Obrana", icon=ft.Icons.SHIELD_OUTLINED), defend_btn,
+           *([ft.Switch(label="Už jsem se v kole bránil / nebráním se (−3 místo OZ)", value=spent,
+                        active_color=l.hi, data="def-spent",
+                        on_change=lambda e: app.go("kostky", def_spent=e.control.value))] if not is_dh else []),
            k.framed(ft.Column([k.muted("CO SE POČÍTÁ DO OBRANY", size=12, weight=ft.FontWeight.BOLD),
                                ft.Column(checks, spacing=0)], spacing=6),
                     padding=ft.Padding.symmetric(horizontal=2, vertical=10)),

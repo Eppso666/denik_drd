@@ -100,7 +100,7 @@ def batoh(app):
         if i.get("price"):
             sub += f" · {i['price']}"
         elif i["category"] == "Štít":
-            sub += f" · obrana {fmt(int(i.get('defense', 1)))}"
+            sub += f" · obrana {fmt(model.shield_value(c, i))}"
         right = f"{num(float(i.get('weight', 0)) * int(i.get('qty', 1)))} {unit}"
         qty = f"×{i.get('qty', 1)}"
         return k.row_item(i["name"], right, sub=sub, badge=qty if int(i.get("qty", 1)) > 1 else None,
@@ -143,7 +143,7 @@ def item_detail(app, i: dict) -> None:
     elif i["category"] == "Zbroj":
         rows.append(("Kvalita", str(i.get("quality", 0))))
     elif i["category"] == "Štít":
-        rows.append(("Bonus k obraně", fmt(int(i.get("defense", 1)))))
+        rows.append(("Bonus k obraně", fmt(model.shield_value(app.char, i))))
     rows.append(("Počet · váha", f"{i.get('qty', 1)} · {num(float(i.get('weight', 0)))} {unit}"))
     desc = (i.get("desc") or "").strip()
 
@@ -217,7 +217,8 @@ def edit_item(app, i: dict | None) -> None:
         if cat == "Zbraň":
             rows += [ft.Row([f["attack"], f["damage"], f["defense"]], spacing=8), f["ranged"]]
         elif cat == "Štít":
-            rows.append(f["shield"])
+            rows.append(f["shield"] if is_dh else k.muted("Štít dává k hodu na obranu vždy +1 (pravidla DrD).",
+                                                          size=12))
         elif cat == "Zbroj":
             rows.append(f["quality"])
         if i is None:

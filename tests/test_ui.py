@@ -704,10 +704,27 @@ def test_kostky_souboj_defense(make_app):
     assert dice.defense_total(c, parts, set()) == model.oc(c, w)
     box = next(x for v in page.views for x in walk(v) if str(getattr(x, "data", "")).startswith("def:stit"))
     box.on_click(Ev(box))
-    assert dice.defense_total(c, parts, set(c["def_off"])) == model.oc(c, w) - 2
+    assert dice.defense_total(c, parts, set(c["def_off"])) == model.oc(c, w) - 1  # štít v DrD vždy +1
     btn = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "defend")
     btn.on_click(Ev(btn))
     assert app.ui["dice_last"]["label"] == "Obrana"
+    # už se v kole bránil: místo OZ meče (+1) −3
+    c["def_off"] = []
+    sw = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "def-spent")
+    sw.value = True
+    sw.on_change(Ev(sw))
+    parts2 = dice.defense_parts(c, w, spent=True)
+    assert app.ui["def_spent"] and dice.defense_total(c, parts2, set()) == model.oc(c, w) - 1 - 3
+
+
+def test_drd_shield_always_plus_one():
+    c = model.create_character("drd", "Kram", "Kroll", "Válečník", [18, 11, 16, 6, 7])
+    c["items"] = [model.item("Šupinové brnění", "Zbroj", equipped=True, quality=4),
+                  model.item("Velký štít", "Štít", equipped=True, defense=3),
+                  model.item("Malý štít", "Štít", equipped=True, defense=1)]
+    assert model.oc_sheet(c) == 4 and model.shield_bonus(c) == 1
+    assert model.oc(c, {"name": "Meč", "defense": 0}) == 5
+    assert model.oc(c, {"name": "Obouruční meč", "defense": 1, "hands": 2}) == 5  # bez štítu
 
 
 def test_postup_backup_question_and_undo(make_app):
