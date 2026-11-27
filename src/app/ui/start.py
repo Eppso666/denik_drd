@@ -27,15 +27,16 @@ def uvod(app):
 
     def tile(title: str, sub: str, picture: bytes, target: str) -> ft.Control:
         return ft.Container(ft.Column([
-            ft.Container(ft.Image(src=picture, fit=ft.BoxFit.COVER, height=210), height=210,
-                         clip_behavior=ft.ClipBehavior.HARD_EDGE),
+            ft.Container(ft.Image(src=picture, fit=ft.BoxFit.COVER, width=float("inf"), height=210),
+                         height=210, clip_behavior=ft.ClipBehavior.HARD_EDGE),
             ft.Container(ft.Row([
                 ft.Column([k.text(title, size=22, weight=ft.FontWeight.BOLD, head=True), k.muted(sub, size=13)],
                           spacing=2, expand=True),
                 ft.Icon(ft.Icons.CHEVRON_RIGHT, size=24, color=l.orn),
             ], vertical_alignment=ft.CrossAxisAlignment.CENTER), padding=ft.Padding.symmetric(horizontal=14, vertical=12),
                 gradient=k.grad(l.card2, l.card), border=ft.Border.only(top=ft.BorderSide(1, l.orn))),
-        ], spacing=0), border_radius=ft.BorderRadius.all(8), clip_behavior=ft.ClipBehavior.HARD_EDGE,
+        ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.STRETCH), border_radius=ft.BorderRadius.all(8),
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             border=ft.Border.all(2, l.orn), shadow=k.glow(18), bgcolor=l.card,
             on_click=lambda e: app.go(target), ink=True, data="uvod:" + target)
 
