@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import flet as ft
 
@@ -15,6 +16,11 @@ FONT_FILES = {
 
 
 def available_fonts() -> dict[str, str]:
+    """Písma ze složky assets. Ve webové verzi (Pyodide) a v telefonu Python složku assets nevidí –
+    písma tam ale sestavení přibalí (scripts/fetch_fonts.sh), takže se zapnou vždy."""
+    if sys.platform in ("emscripten", "android", "ios") or os.environ.get("FLET_PLATFORM") in ("android", "ios") \
+            or hasattr(sys, "getandroidapilevel"):
+        return dict(FONT_FILES)
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
     return {name: path for name, path in FONT_FILES.items() if os.path.exists(os.path.join(here, path))}
 

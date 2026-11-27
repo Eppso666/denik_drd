@@ -1,9 +1,14 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.16.2"
+VERSION = "0.16.3"
 
 CHANGES: dict[str, list[str]] = {
+    "0.16.3": [
+        "Pán jeskyně vidí v deníku hráče i opravy vlastností.",
+        "Webová verze a telefon mají písma Cinzel a Alegreya jako na PC.",
+        "Kouzlo nejde seslat pod minimem magenergie (např. Modré blesky pod 3 magy) – magy zůstanou.",
+    ],
     "0.16.2": [
         "Smazání kampaně v Doupěti pána jeskyně (podržením karty i ze Stolu PJ) ji ukončí i hráčům – "
         "při další synchronizaci se jim odpojí a postavy jim zůstanou.",

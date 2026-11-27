@@ -328,7 +328,9 @@ def show_sheet(app, camp, m) -> None:
         ]
         attrs = sh.get("attrs") or []
         if attrs:
-            body.append(ft.Row([k.stat(a, v) for a, v in zip(r.ATTRS, attrs)], spacing=6))
+            body.append(ft.Row([k.stat(a, v, fmt(r.bonus(int(v))),
+                                       sub_color=app.look.orn if r.bonus(int(v)) > 0 else app.look.muted)
+                                for a, v in zip(r.ATTRS, attrs)], spacing=6))
         items = sh.get("items") or []
         if items:
             body.append(k.text("Batoh", size=15, weight=ft.FontWeight.BOLD, head=True))

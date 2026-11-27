@@ -189,6 +189,10 @@ def spell_detail(app, c: dict, s: dict, known: bool) -> None:
 
         def do(v):
             spent = max(0, int(v["mana"]))
+            need = int(s.get("min") or 1)
+            if spent < need:
+                app.toast(f"{s['name']} potřebuje aspoň {need} magů – kouzlo se neseslalo, magenergie zůstala.")
+                return
             if spent > c.get("mana", 0):
                 app.toast("Nemáš tolik magenergie.")
                 return

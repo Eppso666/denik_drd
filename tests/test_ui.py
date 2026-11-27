@@ -845,3 +845,22 @@ def test_delete_campaign_ends_it_for_players(make_app):
     app.run(pj.end_campaign(app, local))
     drain(page)
     assert local["id"] not in app.gm and app.screen == "doupe"
+
+
+def test_cast_below_minimum_is_refused(make_app, monkeypatch):
+    app, page = make_app()
+    c = model.create_character("drd", "Elwin", "Elf", "Kouzelník", [9, 14, 10, 17, 13])
+    c["spells"] = ["Modré blesky"]
+    c["mana"] = 30
+    app.add_character(c)
+    app.open_character(c["id"])
+    n = len(c.get("history", []))
+    res = _cast(app, page, c, "Modré blesky", 2, monkeypatch, 5)
+    assert c["mana"] == 30 and len(c.get("history", [])) == n and getattr(res, "data", None) != "spell-result"
+
+
+def test_fonts_on_web_and_phone(monkeypatch):
+    import importlib, sys as _sys
+    import main
+    monkeypatch.setattr(_sys, "platform", "emscripten")
+    assert set(main.available_fonts()) == set(main.FONT_FILES)
