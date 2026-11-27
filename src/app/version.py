@@ -1,9 +1,17 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.17.1"
+VERSION = "0.18.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.18.0": [
+        "Katalog DrD: celý Ceník z Příručky PJ (s. 101) – výstroj s cenami a váhami, nové skupiny "
+        "Jídlo a služby a Oblečení a zvířata (hostinec, živobytí, šaty, kůň, mezek, povozy…).",
+        "Koupit: cena za kus jde upravit (u rozpětí se předvyplní dolní mez), ukáže se celkem a kolik zbyde; "
+        "nákup se potvrzuje druhým klepnutím.",
+        "Batoh DrD: rozměnit zlaťák/stříbrňák, sloučit drobné a součet peněz (1 zl = 10 st = 100 md).",
+        "Nová postava DrD začíná s 85 zl (PPZ s. 101).",
+    ],
     "0.17.1": [
         "Kostky → Souboj (DrD): přepínač „Už jsem se v kole bránil / nebráním se“ – místo obrany zbraně −3.",
         "Štít dává v Dračím doupěti vždy +1 k obraně (podle pravidel), i když má předmět zapsanou jinou hodnotu.",

@@ -46,6 +46,9 @@ def create_character(system: str, name: str, race: str, cls: str, attrs: list[in
         "avatar": None,
         "created": time.time(),
     }
+    if system == "drd":
+        from .rules import drd_vybava
+        c["money"]["zl"] = drd_vybava.START_MONEY_ZL  # PPZ s. 101: dobrodruzi začínají asi s 85 zl
     if system == "dh":
         hp = dh.hit_points(attrs)
         c["hp_max"] = c["hp"] = hp

@@ -104,33 +104,62 @@ UNARMED_OZ = -3  # Tabulka zbraní: „žádná“ – síla 0, útočnost 0, ob
 
 RACE_SIZE = {"Hobit": "A", "Kudůk": "A", "Trpaslík": "A", "Elf": "B", "Člověk": "B", "Barbar": "B", "Kroll": "C"}
 
-# Výstroj: (název, váha mn, poznámka)
+# Výstroj podle Ceníku PPZ s. 101 (Příručka PJ) a kapitoly Výstroj z Pravidel pro začátečníky.
+# (název, váha mn, cena, poznámka, skupina). Cena „až“/„–“ = rozpětí (koupí se za dolní mez, lze upravit),
+# „?“ = cena se velmi liší, určí PJ. * = neprodává se všude, záleží na PJ.
+G_GEAR, G_FOOD, G_MISC = "Výstroj", "Jídlo a služby", "Oblečení a zvířata"
 GEAR = [
-    ("Kožená torna", 20, "unese 800 mn"),
-    ("Velký vak", 12, "unese 500 mn"),
-    ("Malý vak", 7, "unese 150 mn"),
-    ("Měch na vodu (plný)", 25, "prázdný 5 mn, voda na den"),
-    ("Flakónek (plný)", 5, "prázdný 3 mn"),
-    ("Láhev (plná)", 15, "prázdná 5 mn"),
-    ("Jídlo na týden", 175, "150–200 mn, sušené až pětina váhy"),
-    ("Pochodeň", 10, "svítí 6 sáhů, vydrží 3 směny"),
-    ("Lucerna", 30, "svítí 8 sáhů, 25–35 mn"),
-    ("Láhev oleje", 15, "do lucerny na 4 hodiny, nebo jako zbraň"),
-    ("Křesadlo", 2, "křemen, ocílka a troud"),
-    ("Vlčí mor (svazeček)", 1, "proti lykantropům"),
-    ("Svěcená voda (flakónek)", 5, "proti nemrtvým"),
-    ("Hůl (1,5 sáhu)", 10, "na oťukávání podlahy"),
-    ("Provaz (1 sáh)", 2, "prodává se na sáhy"),
-    ("Zrcátko", 2, "kovové, kapesní"),
-    ("Pergamen (10 svitků)", 1, ""),
-    ("Kladivo", 15, ""),
-    ("Železné hřebíky (tucet)", 2, ""),
-    ("Šaty", 80, "40–120 mn podle druhu"),
-    ("Šípy / šipky (10 ks)", 20, "1 st za 10 kusů, stříbrné 1 zl"),
-    ("Toulec", 10, "na 10–20 šípů, asi 5 st"),
+    ("Kožená torna", 20, "5 zl 5 st", "unese 800 mn", G_GEAR),
+    ("Velký vak", 12, "8 st", "unese 500 mn", G_GEAR),
+    ("Malý vak", 7, "4 st", "unese 150 mn", G_GEAR),
+    ("Měch na vodu", 5, "1 st 5 md", "prázdný; plný 25 mn, voda na den", G_GEAR),
+    ("Flakónek", 3, "4 st", "prázdný; plný 5 mn", G_GEAR),
+    ("Láhev (½ čtvrtky)", 5, "1 st", "prázdná; plná 15 mn", G_GEAR),
+    ("Pochodně (6 ks)", 60, "6 md", "svítí 6 sáhů, vydrží 3 směny", G_GEAR),
+    ("Lucerna obyčejná", 24, "3 st 5 md", "svítí 8 sáhů", G_GEAR),
+    ("Lucerna s okenicemi", 35, "1 zl 5 st", "svítí 8 sáhů, lze zaclonit", G_GEAR),
+    ("Olej (½ čtvrtky)", 10, "3 st 2 md", "do lucerny na 4 hodiny, nebo jako zbraň", G_GEAR),
+    ("Křesadlo", 2, "1 st", "křemen, ocílka a troud", G_GEAR),
+    ("Vlčí mor (svazeček)", 1, "?", "proti lykantropům; cena se velmi liší", G_GEAR),
+    ("Svěcená voda (0,1 čtvrtky)", 2, "1 zl", "proti nemrtvým; neprodává se všude*", G_GEAR),
+    ("Hůl (1,5 sáhu)", 10, "2 st 3 md", "na oťukávání podlahy", G_GEAR),
+    ("Provaz (10 sáhů)", 20, "9 st 5 md", "", G_GEAR),
+    ("Zrcátko kovové", 2, "1 st", "kapesní", G_GEAR),
+    ("Pergamen (20×30 coulů)", 0.1, "4 zl", "", G_GEAR),
+    ("Nepravý pergamen", 0.1, "8 st", "", G_GEAR),
+    ("Kladivo", 15, "4 st", "", G_GEAR),
+    ("Hřebíky (30 ks)", 5, "1 st", "", G_GEAR),
+    ("Pila", 10, "5–15 st", "5–15 mn podle velikosti", G_GEAR),
+    ("Zlodějské náčiní", 20, "?", "neprodává se všude*, cena se velmi liší", G_GEAR),
+    ("Truhla malá dřevěná", 50, "4 zl", "", G_GEAR),
+    ("Truhla velká železná", 1500, "16 zl", "", G_GEAR),
+    ("Deka, houně", 40, "1–8 zl", "20–60 mn", G_GEAR),
+    ("Šípy / šipky (10 ks)", 20, "1 st", "stříbrné 1 zl za 10 ks", G_GEAR),
+    ("Toulec", 10, "5 st", "na 10–20 šípů; cena orientační", G_GEAR),
+    ("Jídlo na týden – skromné", 150, "2 zl 3 st", "sušené až pětina váhy", G_FOOD),
+    ("Jídlo na týden – dobré", 200, "5 zl 5 st", "sušené až pětina váhy", G_FOOD),
+    ("Víno (1 čtvrtka)", 20, "4 st", "", G_FOOD),
+    ("Pivo (soudek, 5 čtvrtek)", 120, "5 st 5 md", "", G_FOOD),
+    ("Medovina (0,3 čtvrtky)", 6, "3 st", "", G_FOOD),
+    ("Večeře v hostinci", 0, "5 st až 3 zl", "služba", G_FOOD),
+    ("Nocleh v hostinci", 0, "1–3 zl", "podle luxusu; služba", G_FOOD),
+    ("Živobytí v podnájmu (týden)", 0, "20 zl", "cca, včetně stravy; bez zvláštních výdajů (oblečení…)", G_FOOD),
+    ("Živobytí doma (týden)", 0, "8 zl", "střední životní úroveň; bez zvláštních výdajů", G_FOOD),
+    ("Šaty letní obyčejné", 40, "8 zl", "", G_MISC),
+    ("Šaty letní zdobené", 60, "80 zl", "", G_MISC),
+    ("Šaty zimní obyčejné", 80, "20 zl", "", G_MISC),
+    ("Šaty zimní zdobené", 120, "180 zl", "", G_MISC),
+    ("Sedlo", 65, "30–50 zl", "50–80 mn", G_MISC),
+    ("Mezek", 4000, "40 zl", "zvíře", G_MISC),
+    ("Kůň", 13000, "50–1000 zl", "zvíře; cena podle kvality", G_MISC),
+    ("Trakař nebo dvoukolák", 250, "3–5 zl", "", G_MISC),
+    ("Kočár pro 4 osoby", 5000, "2000–6000 zl", "", G_MISC),
 ]
+GEAR_SOURCE = "PPZ s. 101"
+NOT_IN_CENIK = {"Šípy / šipky (10 ks)", "Toulec"}  # z kapitoly Výstroj, ne z Ceníku
+START_MONEY_ZL = 85  # PPZ s. 101, Peníze: dobrodruzi začínají asi s 85 zl
 
-CATALOG_GROUPS = ["Zbraně na blízko", "Střelné a vrhací", "Zbroje a štít", "Výstroj"]
+CATALOG_GROUPS = ["Zbraně na blízko", "Střelné a vrhací", "Zbroje a štít", G_GEAR, G_FOOD, G_MISC]
 
 
 def kg(mn: float) -> float:
@@ -171,9 +200,9 @@ def catalog(race: str | None = None) -> list[dict]:
     out.append({"group": "Zbroje a štít", "name": name, "category": "Štít", "defense": bonus,
                 "weight_mn": weights[si], "price": f"{prices[si]} zl",
                 "info": f"+{bonus} k hodu na obranu · velikost {size}"})
-    for name, mn, note in GEAR:
-        out.append({"group": "Výstroj", "name": name, "category": "Ostatní", "weight_mn": mn, "price": "",
-                    "info": note})
+    for name, mn, price, note, grp in GEAR:
+        out.append({"group": grp, "name": name, "category": "Ostatní", "weight_mn": mn, "price": price,
+                    "info": " · ".join(x for x in (note, "" if name in NOT_IN_CENIK else GEAR_SOURCE) if x)})
     for it in out:
         it["weight"] = kg(it["weight_mn"])
     return out

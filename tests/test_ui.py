@@ -266,6 +266,10 @@ def test_catalog_add_and_buy(make_app):
     buy = next(a for a in page.dialogs[-1].actions if a.content == "Koupit")
     buy.on_click(Ev(buy))
     drain(page)
+    assert c["money"] == {"zl": 30, "st": 0, "md": 0}  # první klepnutí jen žádá potvrzení
+    assert buy.content == "Zaplatit 24 zl?"
+    buy.on_click(Ev(buy))
+    drain(page)
     assert c["money"] == {"zl": 6, "st": 0, "md": 0}
     assert any(i["name"] == "Široký meč" and i["equipped"] for i in c["items"])
     assert model.weapons(c)[0]["attack"] == 5
@@ -274,6 +278,47 @@ def test_catalog_add_and_buy(make_app):
     mail = next(i for i in items if i["name"] == "Kroužková zbroj")
     assert mail["weight_mn"] == 350 and mail["quality"] == 5
     assert catalog.price_md("1 zl 5 st") == 150
+
+
+def test_cenik_ppz_101(make_app):
+    from app.ui import catalog
+    from app.rules import drd_vybava
+    # převody a rozpětí cen
+    assert catalog.price_md("5 zl 5 st") == 550 and catalog.price_md("1 st 5 md") == 15
+    assert catalog.price_range("5 st až 3 zl") == (50, 300)
+    assert catalog.price_range("1–3 zl") == (100, 300) and catalog.price_range("5–15 st") == (50, 150)
+    assert catalog.price_range("?") is None and catalog.price_md("1–3 zl") is None
+    assert catalog.fmt_md(1234) == "12 zl 3 st 4 md" and catalog.fmt_md(0) == "0 md"
+    # směna mincí
+    assert catalog.exchange({"zl": 1, "st": 0, "md": 0}, "zl") == {"zl": 0, "st": 10, "md": 0}
+    assert catalog.exchange({"zl": 0, "st": 12, "md": 25}, "sloucit") == {"zl": 1, "st": 4, "md": 5}
+    assert catalog.exchange({"zl": 0, "st": 0, "md": 3}, "st") is None
+    # ceník: každá výstroj má cenu a odkaz na stránku
+    app, page = make_app()
+    c = _drd_char(app, page, "Zloděj", attrs=(12, 16, 12, 12, 12))
+    assert c["money"] == {"zl": drd_vybava.START_MONEY_ZL, "st": 0, "md": 0}
+    items = catalog.rules_catalog(c)
+    gear = [i for i in items if i["category"] == "Ostatní"]
+    assert all(i["price"] for i in gear)
+    torna = next(i for i in gear if i["name"] == "Kožená torna")
+    assert catalog.price_md(torna["price"]) == 550 and torna["weight_mn"] == 20 and "PPZ s. 101" in torna["info"]
+    assert {"Jídlo a služby", "Oblečení a zvířata"} <= {i["group"] for i in items}
+    # nákup s rozpětím: dolní mez, po úpravě ceny platí zadanou
+    c["money"] = {"zl": 2, "st": 0, "md": 0}
+    nocleh = next(i for i in gear if i["name"] == "Nocleh v hostinci")
+    catalog.item_dialog(app, nocleh)
+    dlg = page.dialogs[-1]
+    fields = [x for x in walk(dlg) if getattr(x, "label", None) == "Cena za kus"]
+    assert fields[0].value == "1 zl"
+    fields[0].value = "2 zl"
+    fields[0].on_change(Ev(fields[0]))
+    buy = next(a for a in dlg.actions if str(a.content).startswith("Koupit"))
+    buy.on_click(Ev(buy))
+    buy.on_click(Ev(buy))
+    drain(page)
+    assert c["money"] == {"zl": 0, "st": 0, "md": 0}
+    assert any(i["name"] == "Nocleh v hostinci" for i in c["items"])
+    assert c["history"][0]["value"] == "1× Nocleh v hostinci za 2 zl"
 
 
 def test_mana_gauge_for_casters(make_app):

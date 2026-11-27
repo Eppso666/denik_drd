@@ -79,8 +79,33 @@ def batoh(app):
         app.form("Peníze", [("zl", "Zlaťáky", m["zl"], "int"), ("st", "Stříbrňáky", m["st"], "int"),
                             ("md", "Měďáky", m["md"], "int")], save)
 
-    money = ft.Row([k.stat("ZLATÉ", m["zl"], on_click=edit_money), k.stat("STŘÍBRNÉ", m["st"], on_click=edit_money),
+    def change(how: str):
+        def h(e):
+            from .catalog import exchange
+            new = exchange(c["money"], how)
+            if new is None:
+                app.toast("Není co měnit.")
+                return
+            c["money"] = new
+            app.save(c)
+            app.refresh()
+        return h
+
+    coins = ft.Row([k.stat("ZLATÉ", m["zl"], on_click=edit_money), k.stat("STŘÍBRNÉ", m["st"], on_click=edit_money),
                     k.stat("MĚDĚNÉ", m["md"], on_click=edit_money)], spacing=6)
+    if is_dh:
+        money = coins
+    else:
+        from .catalog import fmt_md, money_md
+        total = money_md(m)
+        money = ft.Column([
+            coins,
+            ft.Row([ft.TextButton("Rozměnit 1 zl", on_click=change("zl")),
+                    ft.TextButton("Rozměnit 1 st", on_click=change("st")),
+                    ft.TextButton("Sloučit drobné", on_click=change("sloucit"))], wrap=True, spacing=0),
+            k.muted(f"1 zl = 10 st = 100 md · celkem {total / 100:.2f} zl".replace(".", ",")
+                    + (f" ({fmt_md(total)})" if total % 100 else ""), size=12),
+        ], spacing=2)
 
     flt = app.ui.get("bag_filter", "Vše")
     allowed = FILTERS.get(flt)
