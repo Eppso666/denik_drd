@@ -315,6 +315,70 @@ class Client:
             raise SyncError("Obrázek se nepodařilo stáhnout.")
         return data
 
+    # --- Pán jeskyně (kampaň z Doupěte, bez postavy) ------------------------------------------
+    async def gm_create(self, camp: dict) -> None:
+        """Založí kampaň PJ na serveru; PJ je v ní jako člen „PJ“ bez postavy. Do camp zapíše sid a kód."""
+        row = await self.req("POST", "/rest/v1/rpc/create_campaign", {
+            "p_name": (camp.get("name") or "Nová kampaň")[:80], "p_system": camp["system"], "p_char_id": None,
+            "p_snapshot": {"name": "Pán jeskyně"}})
+        camp.update(sid=row["id"], code=row["code"], session=row.get("session", camp.get("session", 1)),
+                    uid=self.uid)
+
+    async def gm_pull(self, camp: dict) -> bool:
+        """Stáhne hráče, jejich deníky a hody družiny. Vrátí, zda se něco změnilo."""
+        sid = camp.get("sid")
+        if not sid:
+            return False
+        before = json.dumps([camp.get("members"), camp.get("feed"), camp.get("sheets"), camp.get("online")],
+                            sort_keys=True, default=str)
+        try:
+            await self.req("PATCH", f"/rest/v1/members?campaign_id=eq.{sid}&user_id=eq.{self.uid}",
+                           {"last_seen": _iso()}, prefer="return=minimal")
+            rows = await self.req("GET", f"/rest/v1/campaigns?id=eq.{sid}&select=name,session,code")
+            if not rows:
+                camp["gone"] = True
+            else:
+                camp["members"] = await self.req(
+                    "GET", f"/rest/v1/members?campaign_id=eq.{sid}"
+                           "&select=user_id,role,snapshot,last_seen,share_hp&order=role.asc")
+                camp["feed"] = await self.req(
+                    "GET", f"/rest/v1/rolls_feed?campaign_id=eq.{sid}"
+                           "&select=who,label,result,hidden,created_at&order=created_at.desc&limit=25")
+                sheets = await self.req("GET", f"/rest/v1/member_sheets?campaign_id=eq.{sid}&select=user_id,sheet")
+                camp["sheets"] = {r["user_id"]: r["sheet"] for r in sheets or []}
+            camp["online"] = True
+            camp["error"] = None
+            camp["last_sync"] = time.time()
+        except (SyncError, OSError, asyncio.TimeoutError) as ex:
+            camp["online"] = False
+            camp["error"] = str(ex) if isinstance(ex, SyncError) else "Bez připojení k internetu."
+        after = json.dumps([camp.get("members"), camp.get("feed"), camp.get("sheets"), camp.get("online")],
+                           sort_keys=True, default=str)
+        return before != after
+
+    async def gm_update(self, camp: dict) -> None:
+        if camp.get("sid"):
+            await self.req("PATCH", f"/rest/v1/campaigns?id=eq.{camp['sid']}",
+                           {"name": camp["name"][:80], "session": max(1, int(camp["session"]))},
+                           prefer="return=minimal")
+
+    async def gm_delete(self, camp: dict) -> None:
+        if camp.get("sid"):
+            await self.req("DELETE", f"/rest/v1/campaigns?id=eq.{camp['sid']}")
+
+    async def gm_share_image(self, camp: dict, data: bytes, title: str) -> None:
+        sid = camp["sid"]
+        path = f"{sid}/{int(time.time() * 1000)}.jpg"
+        await self.req("POST", f"/storage/v1/object/{BUCKET}/{path}", raw=data, content_type="image/jpeg")
+        await self.req("POST", "/rest/v1/shared_images", {"campaign_id": sid, "title": title or "Obrázek",
+                                                          "path": path}, prefer="return=minimal")
+
+    async def gm_roll(self, camp: dict, label: str, result: str, hidden: bool) -> None:
+        if camp.get("sid"):
+            await self.req("POST", "/rest/v1/rolls", [{"campaign_id": camp["sid"], "who": "PJ", "label": label[:120],
+                                                       "result": str(result)[:40], "hidden": hidden}],
+                           prefer="return=minimal")
+
     # --- synchronizace -------------------------------------------------------------
     async def sync(self, c: dict) -> bool:
         """Odešle moje hody a stav postavy, stáhne členy, hody a obrázky. Vrátí, zda se něco změnilo."""

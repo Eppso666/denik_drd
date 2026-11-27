@@ -8,7 +8,7 @@ import time
 
 import flet as ft
 
-from .. import model, sync, theme, version
+from .. import model, theme, version
 from ..version import VERSION
 from ..rules import dh, drd
 from ..rules.common import fmt
@@ -147,7 +147,7 @@ def check_password(camp: dict, password: str) -> bool:
 
 def new_gm_campaign(system: str, name: str, password: str) -> dict:
     return {"id": model.new_id(), "name": name.strip()[:80] or "Nový příběh", "system": system, "session": 1,
-            "code": sync.new_code(), "pw": hash_password(password), "created": time.time(),
+            "code": None, "pw": hash_password(password), "created": time.time(),
             "members": [], "feed": [], "notes": [], "maps": [], "xp_pool": [], "combat": None, "outbox": []}
 
 
@@ -162,8 +162,8 @@ def doupe(app):
         *(cards or [k.empty("Zatím žádný příběh. Založ první kampaň – dostane název a heslo.")]),
         k.button("Nový příběh (kampaň)", lambda e: new_campaign_dialog(app), primary=not cards,
                  icon=ft.Icons.WORKSPACE_PREMIUM_OUTLINED, height=48),
-        k.note("Každou kampaň chrání její heslo – bez něj se Stůl PJ neotevře. Hráči heslo neznají; do kampaně "
-               "se připojí jen kódem kampaně (propojení s hráči připravujeme)."),
+        k.note("Každou kampaň chrání její heslo – bez něj se Stůl PJ neotevře. Hráči heslo neznají: kód kampaně "
+               "zadají u své postavy v Družině → Připojit se."),
     ]
     return Screen("Doupě pána jeskyně", [column(controls)])
 
@@ -222,8 +222,11 @@ def new_campaign_dialog(app) -> None:
         system = "dh" if v.get("game") == dh.NAME else "drd"
         camp = new_gm_campaign(system, name, pw)
         app.add_gm(camp)
-        app.open_gm(camp["id"])
-        app.toast(f"Kampaň {camp['name']} založena. Kód pro hráče {camp['code']}.")
+        app.gm_unlocked.add(camp["id"])
+        app.gm_active = camp["id"]
+        app.go("pj_kampan")
+        from . import pj
+        pj.publish(app, camp)  # kód pro hráče dá server družiny
 
     app.form("Nová kampaň", [
         ("game", "Hra", games[0], "choice", games),
@@ -231,7 +234,7 @@ def new_campaign_dialog(app) -> None:
         ("pw", "Heslo kampaně", "", "password"),
         ("pw2", "Heslo znovu", "", "password"),
         ("hint", "", "Heslo chrání Doupě pána jeskyně – poznámky, bestiář PJ a nástroje. Hráči ho neznají; "
-                     "do kampaně se připojí kódem. Zapomenuté heslo nejde obnovit.", "info"),
+                     "kód kampaně zadají u své postavy v Družině. Zapomenuté heslo nejde obnovit.", "info"),
     ], save, save_label="Založit")
 
 

@@ -630,7 +630,9 @@ def test_campaign_password_and_table(make_app):
     assert app.screen == "pj_kampan" and camp["name"] == "Prokletí Černé věže" and camp["system"] == "drd"
     assert "drak1234" not in str(camp) and st.check_password(camp, "drak1234") and not st.check_password(camp, "x")
     t = texts_of(page)
-    assert camp["code"] in t and not any("zamčena" in v.lower() for v in t) and "Žádá o vstup" not in t
+    # v testech je server nedostupný: kampaň zůstane uložená a nabídne „Získat kód pro hráče“
+    assert camp["code"] is None and "Získat kód pro hráče" in t
+    assert not any("zamčena" in v.lower() for v in t) and "Žádá o vstup" not in t
     # po novém spuštění se Stůl PJ bez hesla neotevře
     app.gm_unlocked.clear()
     app.go("pj_kampan")

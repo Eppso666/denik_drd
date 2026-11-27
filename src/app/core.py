@@ -133,7 +133,8 @@ class App:
             else:
                 self.gm_order.remove(cid)
         self.pj_content = await self.store.get_json("pj_content", {})
-        if any(sync.is_remote(sync.campaign(c)) for c in self.chars.values()):
+        if any(sync.is_remote(sync.campaign(c)) for c in self.chars.values()) or \
+                any(camp.get("sid") for camp in self.gm.values()):
             self.start_sync_loop()
 
     # --- družina (Supabase) --------------------------------------------------
@@ -152,6 +153,13 @@ class App:
         async def loop():
             while True:
                 await asyncio.sleep(sync.SYNC_INTERVAL)
+                camp = self.camp
+                if self.screen in PJ_ROOTS and camp and camp.get("sid"):
+                    try:
+                        await self.gm_pull(camp)
+                    except Exception:  # pragma: no cover - síť nesmí shodit aplikaci
+                        pass
+                    continue
                 c = self.char
                 if c and sync.is_remote(sync.campaign(c)):
                     try:
@@ -252,11 +260,32 @@ class App:
             self.gm_active = None
 
     def open_gm(self, cid: str) -> None:
-        """Otevře Stůl PJ (heslo už bylo ověřeno)."""
+        """Otevře Stůl PJ (heslo už bylo ověřeno) a stáhne hráče ze serveru družiny."""
         self.gm_active = cid
         self.gm_unlocked.add(cid)
         self.active = None
         self.go("pj_kampan")
+        camp = self.gm.get(cid)
+        if camp and camp.get("sid") and sync.configured() and sync.SYNC_INTERVAL is not None:
+            self.start_sync_loop()
+            self.run(self.gm_pull(camp))
+
+    async def gm_pull(self, camp: dict) -> None:
+        changed = await self.sync.gm_pull(camp)
+        if camp.get("gone"):
+            camp.pop("sid", None)
+            camp.pop("gone", None)
+            camp["members"] = []
+            changed = True
+            self.toast("Kampaň na serveru už není – hráči se znovu připojí, až získáš nový kód.")
+        self.save_gm(camp)
+        if changed and self.screen in PJ_ROOTS and not self.dialog_open():
+            self.refresh()
+
+    def dialog_open(self) -> bool:
+        """Je otevřený (ne jen hláška) dialog? Překreslení pod ním by ho rozbilo."""
+        stack = getattr(getattr(self.page, "_dialogs", None), "controls", None) or []
+        return any(getattr(d, "open", False) and not isinstance(d, ft.SnackBar) for d in stack)
 
     # --- navigace ------------------------------------------------------------
     def open_character(self, cid: str) -> None:

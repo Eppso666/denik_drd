@@ -109,8 +109,8 @@ class FakeSupabase:
                 self.sheets.append(dict(data, user_id=uid))
                 return 201, b""
             gm = (self._member(cid, uid) or {}).get("role") == "gm"
-            rows = [s for s in self.sheets if s["campaign_id"] == cid and s["user_id"] == eq["user_id"]
-                    and (gm or s["user_id"] == uid)]
+            rows = [s for s in self.sheets if s["campaign_id"] == cid
+                    and ("user_id" not in eq or s["user_id"] == eq["user_id"]) and (gm or s["user_id"] == uid)]
             return 200, json.dumps(rows).encode()
         if table == "rolls":
             for r in data:
@@ -263,3 +263,40 @@ def test_druzina_screen_online(make_app, monkeypatch):
     texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
     assert "Doly pod Černou horou" in texts and "Mirka" in texts and any("Propojeno" in t for t in texts)
     assert click_everything(app, page) > 0
+
+
+def test_gm_campaign_from_doupe_and_player_joins(monkeypatch):
+    """PJ založí kampaň v Doupěti (bez postavy), hráč se připojí kódem v Družině, PJ ho vidí a sdílí mapu."""
+    from app.ui import start as st
+    srv = FakeSupabase()
+    monkeypatch.setattr(sync, "TRANSPORT", srv)
+    gm_settings, pl_settings = {}, {}
+    gm = sync.Client(gm_settings, lambda: None)
+    pl = sync.Client(pl_settings, lambda: None)
+    camp = st.new_gm_campaign("drd", "Prokletí Černé věže", "drak1234")
+    asyncio.run(gm.gm_create(camp))
+    assert camp["sid"] and sync.normalize_code(camp["code"]) == camp["code"]
+    assert srv.members[0]["role"] == "gm" and srv.members[0]["snapshot"]["name"] == "Pán jeskyně"
+    c = model.create_character("drd", "Kira", "Hobit", "Zloděj", [7, 16, 10, 12, 13])
+    asyncio.run(pl.join(c, camp["code"]))
+    model.add_history(c, "Otevírání zámků", "37")
+    asyncio.run(pl.sync(c))
+    assert asyncio.run(gm.gm_pull(camp))
+    from app.ui import pj
+    names = [m["snapshot"]["name"] for m in pj.players(camp)]
+    assert names == ["Kira"] and pj.is_online(pj.players(camp)[0])
+    assert camp["sheets"][pj.players(camp)[0]["user_id"]]["name"] == "Kira"
+    assert any(r["label"] == "Otevírání zámků" for r in camp["feed"])
+    asyncio.run(gm.gm_roll(camp, "Past", "5", hidden=True))
+    asyncio.run(pl.sync(c))
+    assert any(r["label"] == "Skrytý hod" for r in c["campaign"]["feed"])
+    asyncio.run(gm.gm_share_image(camp, b"JPG", "Krypta"))
+    asyncio.run(pl.sync(c))
+    assert c["campaign"]["images"][0]["title"] == "Krypta"
+    camp["session"] = 3
+    asyncio.run(gm.gm_update(camp))
+    asyncio.run(pl.sync(c))
+    assert c["campaign"]["session"] == 3
+    asyncio.run(gm.gm_delete(camp))
+    asyncio.run(pl.sync(c))
+    assert c["campaign"].get("gone")

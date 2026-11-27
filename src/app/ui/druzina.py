@@ -40,7 +40,7 @@ def status_card(app, c: dict) -> ft.Control:
         sub = f"{'PJ' if camp['role'] == 'gm' else 'Hráč'} · sezení {camp['session']} · {n} v družině"
     else:
         title = "Nepřipojeno ke hře"
-        sub = "Připoj se ke kampani kódem od PJ, nebo ji založ."
+        sub = "Připoj se ke kampani kódem od Pána jeskyně."
     return k.card(ft.Row([
         ft.Icon(ft.Icons.GROUPS_OUTLINED, size=26, color=l.hi),
         ft.Column([k.text(title, size=16, weight=ft.FontWeight.BOLD, max_lines=1), k.muted(sub, size=13)],
@@ -130,19 +130,8 @@ def _join_view(app, c: dict) -> list[ft.Control]:
         app.form("Připojit se ke kampani", [("code", "Kód od PJ (např. K7P-42Q)", "", "text")], do,
                  save_label="Připojit")
 
-    def create(e):
-        def do(v):
-            if online:
-                _remote(app, "Zakládám kampaň…", lambda: app.sync.create(c, v.get("name", "")),
-                        lambda: f"Kampaň založena, kód {c['campaign']['code']}.")
-            else:
-                sync.create_campaign(c, v.get("name", ""))
-                app.save(c)
-                app.refresh()
-        app.form(f"Nová kampaň – {game}", [("name", "Název kampaně", "", "text")], do, save_label="Založit")
-
     steps = [
-        ("1", "PJ založí kampaň", "Dostane krátký kód (např. K7P-42Q), který pošle hráčům."),
+        ("1", "PJ založí kampaň", "Na úvodu zvolí Pán jeskyně → Nový příběh a pošle hráčům kód (např. K7P-42Q)."),
         ("2", "Hráči zadají kód", f"Připojí se postavou pro {game}. Postava jiné hry se připojit nedá."),
         ("3", "Hrajete spolu", "Životy a hody vidí celá družina, PJ vidí celé deníky a sdílí mapy."),
     ]
@@ -157,10 +146,10 @@ def _join_view(app, c: dict) -> list[ft.Control]:
         k.card(ft.Column([
             ft.Row([ft.Icon(ft.Icons.GROUPS_OUTLINED, size=30, color=l.hi),
                     k.text("Hraj s družinou", size=20, weight=ft.FontWeight.BOLD, head=True)], spacing=10),
-            k.muted(f"{c['name']} zatím hraje sám. Připoj se ke kampani {game}, nebo ji jako PJ založ.", size=14),
+            k.muted(f"{c['name']} zatím hraje sám. Připoj se kódem ke kampani {game}, kterou založil Pán jeskyně.",
+                    size=14),
         ], spacing=8), accent=True),
-        ft.Row([k.button("Připojit se", join, icon=ft.Icons.LOGIN, expand=1),
-                k.button("Založit (PJ)", create, primary=False, icon=ft.Icons.ADD, expand=1)], spacing=8),
+        k.button("Připojit se kódem od PJ", join, icon=ft.Icons.LOGIN, height=50),
         k.section("Jak to funguje", icon=ft.Icons.HELP_OUTLINE),
         k.card(ft.Column(step_rows, spacing=14)),
         k.section("Co uvidí ostatní", icon=ft.Icons.VISIBILITY_OUTLINED),

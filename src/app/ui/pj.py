@@ -2,8 +2,9 @@
 Kampaň (kód pro hráče, hráči se životy a zkušenostmi, úprava hráče), Souboj (jedna iniciativa pro hráče
 i nestvůry), Bestiář PJ, Nástroje (zkušenosti za boj) a Poznámky (tajné poznámky, připravené mapy, tajná zpráva).
 
-Kampaň chrání heslo (Doupě pána jeskyně). Bez zámku kampaně a bez schvalování žádostí – hráč se připojí jen
-kódem kampaně. Propojení s hráči je zatím odložené: úpravy a zprávy pro hráče čekají ve frontě kampaně.
+Kampaň chrání heslo (Doupě pána jeskyně). Kampaň se zakládá na serveru družiny (Supabase); hráči se k ní
+připojí kódem v Družině své postavy, bez zámku a bez schvalování. PJ vidí hráče, jejich deníky a hody a sdílí
+mapy. Úpravy životů a zkušeností hráčům zatím server neumí – čekají ve frontě kampaně.
 
 Hráč nic z toho nevidí. Obsah příruček PJ je jen v telefonu PJ (nahraný balíček) – ne v aplikaci hráče
 ani v repozitáři.
@@ -16,7 +17,7 @@ import time
 
 import flet as ft
 
-from .. import model
+from .. import model, sync
 from ..rules import dh, drd
 from ..rules.common import fmt
 from .journal import DH_FIELDS, DRD_FIELDS
@@ -29,8 +30,9 @@ PHASES = {"Čas a směny": 8, "Počasí a cesta": 6, "Pasti": 8, "Poklady": 8, "
 # --- místní pomocníci (propojení s hráči je zatím odložené) -------------------------------------------
 
 def players(camp: dict) -> list[dict]:
-    """Hráči kampaně (připojení kódem). Bez propojení zatím jen ti, kteří jsou uložení v kampani."""
-    return [m for m in camp.get("members") or [] if m.get("status", "approved") == "approved"]
+    """Hráči kampaně (připojení kódem v Družině), PJ mezi nimi není."""
+    return [m for m in camp.get("members") or [] if m.get("role", "player") == "player"
+            and m.get("status", "approved") == "approved"]
 
 
 def gm_view_hp(camp: dict, m: dict) -> tuple[int | None, int | None]:
@@ -42,7 +44,7 @@ def gm_view_hp(camp: dict, m: dict) -> tuple[int | None, int | None]:
 
 
 def is_online(m: dict) -> bool:
-    return bool(m.get("online"))
+    return bool(m.get("online")) or sync.is_online(m)
 
 
 def initials(name: str | None) -> str:
@@ -58,8 +60,9 @@ def member_sub(s: dict, lvl: str = "úroveň") -> str:
 
 
 def ago(ts) -> str:
+    t = sync._parse_ts(ts) if isinstance(ts, str) else ts
     try:
-        sec = max(0, time.time() - float(ts))
+        sec = max(0, time.time() - float(t))
     except (TypeError, ValueError):
         return ""
     if sec < 90:
@@ -102,8 +105,8 @@ def pj_kampan(app):
         controls.append(k.framed(ft.Column([_player_row(app, camp, m, i == len(pl) - 1) for i, m in enumerate(pl)],
                                            spacing=0), padding=ft.Padding.symmetric(horizontal=14)))
     else:
-        controls.append(k.empty("Zatím tu nikdo není. Hráči se připojí kódem kampaně – propojení s hráči "
-                                "připravujeme."))
+        controls.append(k.empty("Zatím tu nikdo není. Hráči zadají kód kampaně u své postavy v Družině → "
+                                "Připojit se." if camp.get("sid") else "Nejdřív získej kód pro hráče."))
     controls.append(k.section("Poslední hody", icon=ft.Icons.CASINO_OUTLINED,
                               trailing=k.link("Vše", lambda e: _all_rolls(app, camp))))
     controls.append(_rolls(app, camp, 5))
@@ -118,16 +121,55 @@ def _head(app, camp) -> ft.Control:
                           spacing=2, expand=True), k.pj_badge()],
                vertical_alignment=ft.CrossAxisAlignment.START),
         k.divider(),
-        ft.Row([ft.Column([k.muted("Kód pro hráče", size=12),
-                           k.text(camp.get("code", "–"), size=26, weight=ft.FontWeight.BOLD, head=True, color=app.look.hi)],
-                          spacing=0, expand=True),
-                k.button("Sdílet", lambda e: share_code(app, camp), primary=False,
-                         icon=ft.Icons.SEND_OUTLINED, height=42)], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        (ft.Row([ft.Column([k.muted("Kód pro hráče", size=12),
+                            k.text(camp.get("code", "–"), size=26, weight=ft.FontWeight.BOLD, head=True,
+                                   color=app.look.hi)], spacing=0, expand=True),
+                 k.button("Sdílet", lambda e: share_code(app, camp), primary=False,
+                          icon=ft.Icons.SEND_OUTLINED, height=42)], vertical_alignment=ft.CrossAxisAlignment.CENTER)
+         if camp.get("sid") else
+         ft.Column([k.muted("Kampaň zatím není na serveru družiny – hráči se k ní nemohou připojit.", size=13),
+                    k.button("Získat kód pro hráče", lambda e: publish(app, camp), icon=ft.Icons.CLOUD_UPLOAD_OUTLINED,
+                             height=44)], spacing=8)),
+        *([k.muted(f"Server: {camp['error']}", size=12, color=app.look.bad)] if camp.get("error") else []),
     ], spacing=10), glow=True)
 
 
+def publish(app, camp, then=None) -> None:
+    """Založí kampaň na serveru družiny (dostane kód, který hráči zadají v Družině své postavy)."""
+    k = app.kit
+    if not sync.configured():
+        info(app, "Server není nastavený", "Aplikace nemá nastavený server družiny, hráči se zatím připojit nedají.")
+        return
+
+    async def run():
+        busy = ft.AlertDialog(modal=True, content=ft.Row([ft.ProgressRing(width=22, height=22, color=app.look.hi),
+                                                          k.text("Zakládám kampaň na serveru…", size=15)],
+                                                         spacing=14, tight=True))
+        app.page.show_dialog(busy)
+        try:
+            await app.sync.gm_create(camp)
+            await app.sync.gm_pull(camp)
+            err = None
+        except sync.SyncError as ex:
+            err = str(ex)
+        except OSError:
+            err = "Server družiny není dostupný. Zkontroluj internet a zkus to znovu."
+        app.close_dialog(busy)
+        app.save_gm(camp)
+        app.refresh()
+        if err:
+            info(app, "Kód se nepodařilo získat", err + " Kampaň je uložená, na Stole PJ zkus „Získat kód pro hráče“.")
+        else:
+            app.toast(f"Kód pro hráče: {camp['code']}")
+            app.start_sync_loop()
+        if then:
+            then()
+    app.run(run())
+
+
 def share_code(app, camp) -> None:
-    text = f"Kód kampaně „{camp['name']}“ ({SYS_NAME[camp['system']]}): {camp.get('code')}"
+    text = (f"Kód kampaně „{camp['name']}“ ({SYS_NAME[camp['system']]}): {camp.get('code')}. "
+            "V Deníku dobrodruha otevři svou postavu → Družina → Připojit se.")
 
     async def run():
         try:
@@ -228,8 +270,20 @@ def _edit_campaign(app, camp) -> None:
                 app.toast("Heslo kampaně změněno.")
         app.save_gm(camp)
         app.refresh()
+        if camp.get("sid"):
+            async def up():
+                try:
+                    await app.sync.gm_update(camp)
+                except Exception:  # pragma: no cover - síť
+                    pass
+            app.run(up())
 
     async def delete():
+        if camp.get("sid"):
+            try:
+                await app.sync.gm_delete(camp)
+            except (sync.SyncError, OSError):
+                app.toast("Na serveru se kampaň smazat nepodařilo, smazána jen v tomto zařízení.")
         await app.delete_gm(camp["id"])
         app.go("doupe")
         app.toast("Kampaň smazána. Hráčům postavy zůstaly.")
@@ -283,7 +337,19 @@ def show_sheet(app, camp, m) -> None:
 # --- úprava hráče (životy, zkušenosti, předmět) ------------------------------------------------------
 
 def queue(app, camp, op: dict) -> None:
-    """Akce PJ do fronty – odešle se hned, nebo až bude spojení."""
+    """Akce PJ: hody jdou hned do hodů družiny, úpravy hráčů čekají ve frontě (server je zatím neumí)."""
+    if op.get("op") == "roll":
+        camp.setdefault("feed", []).insert(0, {"who": op["who"], "label": op["label"], "result": op["result"],
+                                               "hidden": op.get("hidden", False), "created_at": time.time()})
+        if camp.get("sid"):
+            async def send():
+                try:
+                    await app.sync.gm_roll(camp, f"{op['who']}: {op['label']}", op["result"], op.get("hidden", False))
+                except Exception:  # pragma: no cover - síť
+                    pass
+            app.run(send())
+        app.save_gm(camp)
+        return
     camp.setdefault("outbox", []).append(op)
     app.save_gm(camp)
 
@@ -974,9 +1040,23 @@ async def upload_map(app, camp) -> None:
 
 
 def share_map(app, camp, mp) -> None:
-    """Sdílení mapy družině – zatím jen označení; odešle se, až bude propojení s hráči."""
-    mp.update(shared=True, session=camp["session"])
-    camp.setdefault("outbox", []).append({"op": "image", "ref": mp["ref"], "title": mp["title"]})
-    app.save_gm(camp)
-    app.refresh()
-    app.toast("Mapa označena ke sdílení – hráči ji dostanou, až bude propojení.")
+    """Sdílení mapy družině: nahraje ji na server, hráčům se uloží do Deníku → Obrázky."""
+    if not camp.get("sid"):
+        app.toast("Nejdřív kampani získej kód pro hráče (Stůl PJ → Kampaň).")
+        return
+
+    async def run():
+        data = app.images.get(mp["ref"]) or await app.store.load_image(mp["ref"])
+        if not data:
+            app.toast("Obrázek mapy se nepodařilo načíst.")
+            return
+        try:
+            await app.sync.gm_share_image(camp, data, mp["title"])
+        except (sync.SyncError, OSError) as ex:
+            info(app, "Mapa se neodeslala", str(ex) or "Bez připojení k internetu.")
+            return
+        mp.update(shared=True, session=camp["session"])
+        app.save_gm(camp)
+        app.refresh()
+        app.toast("Mapa odeslána družině – hráči ji najdou v Deníku → Obrázky.")
+    app.run(run())
