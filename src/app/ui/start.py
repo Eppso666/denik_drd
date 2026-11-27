@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import time
 
@@ -96,13 +97,43 @@ def start(app):
 
 # --- Pán jeskyně: Doupě pána jeskyně ------------------------------------------
 
-PW_ROUNDS = 60_000
+PW_ROUNDS = 20_000
+
+
+def _pbkdf2(password: bytes, salt: bytes, rounds: int) -> bytes:
+    """PBKDF2-HMAC-SHA256. Webová verze a Android (Python bez OpenSSL) nemají hashlib.pbkdf2_hmac,
+    proto náhradní výpočet v čistém Pythonu (stejný výsledek)."""
+    fast = getattr(hashlib, "pbkdf2_hmac", None)
+    if fast is not None:
+        try:
+            return fast("sha256", password, salt, rounds)
+        except (ValueError, AttributeError):  # pragma: no cover - sha256 bez OpenSSL
+            pass
+    if len(password) > 64:
+        password = hashlib.sha256(password).digest()
+    key = password.ljust(64, b"\0")
+    inner = hashlib.sha256(bytes(b ^ 0x36 for b in key))
+    outer = hashlib.sha256(bytes(b ^ 0x5C for b in key))
+
+    def prf(msg: bytes) -> bytes:
+        i = inner.copy()
+        i.update(msg)
+        o = outer.copy()
+        o.update(i.digest())
+        return o.digest()
+
+    u = prf(salt + b"\x00\x00\x00\x01")
+    acc = int.from_bytes(u, "big")
+    for _ in range(rounds - 1):
+        u = prf(u)
+        acc ^= int.from_bytes(u, "big")
+    return acc.to_bytes(32, "big")
 
 
 def hash_password(password: str, salt: bytes | None = None) -> dict:
     """Heslo kampaně se neukládá – jen sůl a otisk (PBKDF2-SHA256)."""
     salt = salt or os.urandom(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, PW_ROUNDS)
+    digest = _pbkdf2(password.encode("utf-8"), salt, PW_ROUNDS)
     return {"salt": salt.hex(), "hash": digest.hex(), "rounds": PW_ROUNDS}
 
 
@@ -110,9 +141,8 @@ def check_password(camp: dict, password: str) -> bool:
     pw = camp.get("pw") or {}
     if not pw.get("salt"):
         return True
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(pw["salt"]),
-                                 int(pw.get("rounds", PW_ROUNDS)))
-    return digest.hex() == pw.get("hash")
+    digest = _pbkdf2(password.encode("utf-8"), bytes.fromhex(pw["salt"]), int(pw.get("rounds", PW_ROUNDS)))
+    return hmac.compare_digest(digest.hex(), pw.get("hash", ""))
 
 
 def new_gm_campaign(system: str, name: str, password: str) -> dict:

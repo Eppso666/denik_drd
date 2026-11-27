@@ -814,3 +814,14 @@ def test_player_has_no_bestiary(make_app):
     app.open_character(c["id"])
     app.go("bestiar")
     assert app.screen == "postava"
+
+
+def test_password_hash_without_openssl(monkeypatch):
+    import hashlib
+    from app.ui import start as st
+    salt = bytes(range(16))
+    fast = hashlib.pbkdf2_hmac("sha256", b"drak1234", salt, 1000)
+    monkeypatch.delattr(hashlib, "pbkdf2_hmac")
+    assert st._pbkdf2(b"drak1234", salt, 1000) == fast
+    camp = {"pw": st.hash_password("drak1234")}
+    assert st.check_password(camp, "drak1234") and not st.check_password(camp, "drak123")
