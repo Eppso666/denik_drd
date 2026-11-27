@@ -195,8 +195,11 @@ class App:
                                    "category": "Mapa", "ts": time.time()})
             saved.append(img["path"])
             changed = True
+        notice = camp.pop("notice", None)
         self.save(c)
-        if changed and self.screen == "druzina":
+        if notice:
+            self.toast(notice)
+        if (changed and self.screen == "druzina") or (notice and not self.dialog_open()):
             self.refresh()
 
     def save(self, c: dict | None = None, bestiary: str | None = None, settings: bool = False) -> None:

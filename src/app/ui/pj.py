@@ -3,8 +3,8 @@ Kampaň (kód pro hráče, hráči se životy a zkušenostmi, úprava hráče), 
 i nestvůry), Bestiář PJ, Nástroje (zkušenosti za boj) a Poznámky (tajné poznámky, připravené mapy, tajná zpráva).
 
 Kampaň chrání heslo (Doupě pána jeskyně). Kampaň se zakládá na serveru družiny (Supabase); hráči se k ní
-připojí kódem v Družině své postavy, bez zámku a bez schvalování. PJ vidí hráče, jejich deníky a hody a sdílí
-mapy. Úpravy životů a zkušeností hráčům zatím server neumí – čekají ve frontě kampaně.
+připojí kódem v Družině své postavy, bez zámku a bez schvalování. PJ vidí hráče, jejich deníky a hody, sdílí
+mapy a posílá hráčům úpravy (životy, zkušenosti, předměty) a tajné zprávy – tabulky adjustments a messages.
 
 Hráč nic z toho nevidí. Obsah příruček PJ je jen v telefonu PJ (nahraný balíček) – ne v aplikaci hráče
 ani v repozitáři.
@@ -211,7 +211,8 @@ def _player_row(app, camp, m, last) -> ft.Control:
     col.append(ft.Row([
         ft.Row([ft.Icon(ft.Icons.STAR_OUTLINE, size=14, color=l.orn),
                 k.muted(f"{fmt_n(xp)} zk." if xp is not None else "zk. –", size=13)], spacing=4, tight=True),
-        k.muted("online" if online else "offline · dorovná se", size=13),
+        k.muted(("online" if online else "offline · dorovná se") +
+                (" · úprava čeká na hráče" if (camp.get("waiting") or {}).get(m.get("user_id")) else ""), size=13),
         ft.Container(expand=True),
         ft.Container(k.text("Deník ›", size=13, weight=ft.FontWeight.BOLD, color=l.orn),
                      on_click=lambda e: show_sheet(app, camp, m), ink=True,
@@ -249,7 +250,7 @@ def _all_rolls(app, camp) -> None:
 def _notifications(app, camp) -> None:
     lines = [f"• {r['who']}: {r['label']} = {r['result']}" for r in (camp.get("feed") or [])[:5]]
     if camp.get("outbox"):
-        lines.append(f"• {len(camp['outbox'])} úprav pro hráče čeká na propojení")
+        lines.append(f"• {len(camp['outbox'])} úprav pro hráče čeká na odeslání")
     info(app, "Oznámení", "\n".join(lines) or "Nic nového.")
 
 
@@ -352,6 +353,16 @@ def queue(app, camp, op: dict) -> None:
         return
     camp.setdefault("outbox", []).append(op)
     app.save_gm(camp)
+    if camp.get("sid"):
+        async def send():
+            try:
+                await app.sync.gm_flush(camp)
+            except OSError:
+                camp["error"] = "Bez připojení – úprava se odešle, až bude internet."
+            app.save_gm(camp)
+            if camp.get("error") and not app.dialog_open():
+                app.refresh()
+        app.run(send())
 
 
 def edit_player(app, camp, m) -> None:
@@ -416,7 +427,8 @@ def edit_player(app, camp, m) -> None:
                       value_color=l.ok if st["xp"] > 0 else None),
             k.button("Předat předmět do batohu", add_item, primary=False, icon=ft.Icons.BACKPACK_OUTLINED, height=44),
             *items,
-            k.note("Změna se propíše do Deníku hráče, až bude propojení s hráči. Hráč uvidí upozornění.",
+            k.note("Změna se propíše do Deníku hráče při jeho další synchronizaci (do pár sekund, když má aplikaci "
+                   "otevřenou). Hráč uvidí upozornění.",
                    ft.Icons.NOTIFICATIONS_OUTLINED),
         ]
         try:
@@ -875,10 +887,10 @@ def pj_nastroje(app):
         if not pl or not total:
             app.toast("Není co rozdělit." if pl else "V kampani zatím nejsou hráči.")
             return
-        for m in pl:
-            camp.setdefault("outbox", []).append({"op": "adjust", "uid": m["user_id"],
-                                                  "payload": {"xp": each, "reason": "zkušenosti za boj"}})
         camp["xp_pool"] = []
+        for m in pl:
+            queue(app, camp, {"op": "adjust", "uid": m["user_id"],
+                              "payload": {"xp": each, "reason": "zkušenosti za boj"}})
         app.save_gm(camp)
         app.refresh()
         app.toast(f"Každý hráč dostal {each} zk.")
@@ -950,7 +962,7 @@ def pj_poznamky(app):
         queue(app, camp, {"op": "message", "uid": m["user_id"], "body": body})
         app.ui["msg_text"] = ""
         app.refresh()
-        app.toast(f"Zpráva pro {to} čeká na propojení.")
+        app.toast(f"Zpráva odeslána hráči {to} – najde ji v Deníku.")
 
     map_rows = []
     for mp in maps:

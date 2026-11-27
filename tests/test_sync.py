@@ -19,6 +19,9 @@ class FakeSupabase:
         self.rolls = []
         self.images = []
         self.files = {}
+        self.adjust = []
+        self.msgs = []
+        self.has_adjust = True
         self.n = 0
         self.anonymous = True
 
@@ -129,6 +132,29 @@ class FakeSupabase:
                 rows.append({"who": r["who"], "label": "Skrytý hod" if masked else r["label"],
                              "result": "jen pro PJ" if masked else r["result"], "hidden": r["hidden"],
                              "created_at": r["created_at"]})
+            return 200, json.dumps(rows).encode()
+        if table in ("adjustments", "messages"):
+            if not self.has_adjust:
+                return 404, json.dumps({"message": f"Could not find the table 'public.{table}' in the schema cache"}).encode()
+            rows_all = self.adjust if table == "adjustments" else self.msgs
+            if method == "POST":
+                m = self._member(data["campaign_id"], uid)
+                if not m or m["role"] != "gm":
+                    return 403, b'{"message":"rls"}'
+                self.n += 1
+                rows_all.append(dict(data, id=self.n, applied=False))
+                return 201, b""
+            who = "user_id" if table == "adjustments" else "to_user"
+            if method == "PATCH":
+                ids = {int(x) for x in q["id"].removeprefix("in.(").rstrip(")").split(",")}
+                for a in rows_all:
+                    if a["id"] in ids and a[who] == uid:
+                        a["applied"] = True
+                return 204, b""
+            gm = (self._member(cid, uid) or {}).get("role") == "gm"
+            rows = [a for a in rows_all if a["campaign_id"] == cid and (gm or a[who] == uid)
+                    and (who not in eq or a[who] == eq[who])
+                    and ("applied" not in eq or str(a.get("applied")).lower() == eq["applied"])]
             return 200, json.dumps(rows).encode()
         if table == "shared_images":
             if method == "POST":
@@ -290,6 +316,31 @@ def test_gm_campaign_from_doupe_and_player_joins(monkeypatch):
     asyncio.run(gm.gm_roll(camp, "Past", "5", hidden=True))
     asyncio.run(pl.sync(c))
     assert any(r["label"] == "Skrytý hod" for r in c["campaign"]["feed"])
+    # úprava od PJ: PJ ji vidí hned, hráč ji při synchronizaci převezme
+    kira = pj.players(camp)[0]["user_id"]
+    hp0 = c["hp"]
+    camp["outbox"] = [{"op": "adjust", "uid": kira, "payload": {"hp": hp0 - 3, "xp": 150,
+                                                                "items": [{"name": "Lano", "qty": 1}],
+                                                                "reason": "past"}},
+                      {"op": "message", "uid": kira, "body": "Za oltářem je tajná chodba."}]
+    asyncio.run(gm.gm_pull(camp))
+    assert not camp["outbox"] and camp["sheets"][kira]["hp"] == hp0 - 3 and camp["waiting"][kira] == 1
+    xp0 = c.get("xp", 0)
+    asyncio.run(pl.sync(c))
+    assert c["hp"] == hp0 - 3 and c["xp"] == xp0 + 150 and c["items"][-1]["name"] == "Lano"
+    assert c["notes"][-1]["text"] == "Za oltářem je tajná chodba." and "Zkušenosti +150" in c["campaign"]["notice"]
+    asyncio.run(pl.sync(c))  # podruhé se nic nepřipíše
+    assert c["xp"] == xp0 + 150 and len([n for n in c["notes"] if n["title"].startswith("Tajná")]) == 1
+    asyncio.run(gm.gm_pull(camp))
+    assert not camp["waiting"] and camp["sheets"][kira]["hp"] == hp0 - 3
+    # server bez tabulek: úprava zůstane ve frontě s návodem
+    srv.has_adjust = False
+    camp["outbox"] = [{"op": "adjust", "uid": kira, "payload": {"xp": 1}}]
+    asyncio.run(gm.gm_pull(camp))
+    assert camp["outbox"] and "upravy_pj.sql" in camp["error"]
+    asyncio.run(pl.sync(c))
+    assert c["campaign"]["online"]
+    srv.has_adjust = True
     asyncio.run(gm.gm_share_image(camp, b"JPG", "Krypta"))
     asyncio.run(pl.sync(c))
     assert c["campaign"]["images"][0]["title"] == "Krypta"

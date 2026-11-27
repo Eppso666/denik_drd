@@ -1,15 +1,20 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.16.0"
+VERSION = "0.16.1"
 
 CHANGES: dict[str, list[str]] = {
+    "0.16.1": [
+        "Úpravy od PJ (životy, zkušenosti, předměty, zásah v souboji, zkušenosti za boj) a tajné zprávy "
+        "se opravdu dostanou k hráči: zapíší se do jeho deníku při další synchronizaci a hráč uvidí upozornění.",
+        "PJ vidí upravené životy hned; dokud úpravu hráč nepřevezme, je u něj „úprava čeká na hráče“.",
+        "Na serveru je potřeba jednou spustit skript supabase/upravy_pj.sql.",
+    ],
     "0.16.0": [
         "Kampaň z Doupěte pána jeskyně se zakládá na serveru družiny: PJ dostane kód a pošle ho hráčům.",
         "Hráči se připojí kódem u své postavy v Družině → Připojit se; PJ na Stole PJ vidí hráče, jejich "
         "životy, deníky a hody, sdílí mapy a mění sezení.",
         "V Družině u postavy už nejde zakládat kampaň – zakládá ji jen Pán jeskyně v Doupěti.",
-        "Úpravy životů a zkušeností hráčům od PJ zatím server neumí – čekají ve frontě.",
     ],
     "0.15.0": [
         "Úvod: Hráč (moje postavy) nebo Pán jeskyně (Doupě pána jeskyně – moje příběhy).",

@@ -157,6 +157,43 @@ def _iso(ts: float | None = None) -> str:
     return dt.datetime.fromtimestamp(ts or time.time(), dt.timezone.utc).isoformat()
 
 
+def apply_adjustment(c: dict, p: dict) -> str:
+    """Úprava od PJ do deníku hráče. Vrátí krátký popis („Životy 12 → 9 · Zkušenosti +150“)."""
+    from . import model
+
+    parts: list[str] = []
+    if p.get("hp") is not None:
+        old = c.get("hp", 0)
+        new = max(-99, min(int(p["hp"]), int(c.get("hp_max", 0)) + 99))
+        c["hp"] = new
+        if new != old:
+            parts.append(f"Životy {old} → {new}")
+    if p.get("hp_delta"):
+        old = c.get("hp", 0)
+        c["hp"] = old + int(p["hp_delta"])
+        parts.append(f"Životy {old} → {c['hp']}")
+    if p.get("xp"):
+        c["xp"] = int(c.get("xp", 0)) + int(p["xp"])
+        parts.append(f"Zkušenosti {int(p['xp']):+d}")
+    for it in p.get("items") or []:
+        c.setdefault("items", []).append(model.item(str(it.get("name", "Předmět"))[:80], it.get("category") or "Ostatní",
+                                                    qty=int(it.get("qty", 1) or 1),
+                                                    weight=float(it.get("weight", 0) or 0)))
+        parts.append(f"Předmět: {it.get('name')}")
+    if parts and p.get("reason"):
+        parts.append(f"({p['reason']})")
+    return " · ".join(parts)
+
+
+NO_TABLE = ("Na serveru chybí tabulka úprav od PJ. Spusť v Supabase skript supabase/upravy_pj.sql "
+            "(SQL Editor → New query → Run).")
+
+
+def _missing_table(ex: Exception) -> bool:
+    t = str(ex).lower()
+    return "adjustments" in t or "messages" in t or "schema cache" in t or "does not exist" in t
+
+
 # ----------------------------------------------------------------------------------- HTTP
 
 Transport = Callable[[str, str, dict, "bytes | None"], Awaitable[tuple[int, bytes]]]
@@ -334,6 +371,8 @@ class Client:
         try:
             await self.req("PATCH", f"/rest/v1/members?campaign_id=eq.{sid}&user_id=eq.{self.uid}",
                            {"last_seen": _iso()}, prefer="return=minimal")
+            camp["error"] = None
+            await self.gm_flush(camp)
             rows = await self.req("GET", f"/rest/v1/campaigns?id=eq.{sid}&select=name,session,code")
             if not rows:
                 camp["gone"] = True
@@ -346,8 +385,27 @@ class Client:
                            "&select=who,label,result,hidden,created_at&order=created_at.desc&limit=25")
                 sheets = await self.req("GET", f"/rest/v1/member_sheets?campaign_id=eq.{sid}&select=user_id,sheet")
                 camp["sheets"] = {r["user_id"]: r["sheet"] for r in sheets or []}
+                # úpravy, které hráč ještě nepřevzal: PJ je vidí hned (jinak by se ukazatel vrátil)
+                try:
+                    waiting = await self.req("GET", f"/rest/v1/adjustments?campaign_id=eq.{sid}&applied=eq.false"
+                                                    "&select=user_id,payload&order=id.asc")
+                except SyncError as ex:
+                    if not _missing_table(ex):
+                        raise
+                    waiting = []
+                camp["waiting"] = {}
+                for a in waiting or []:
+                    uid, pl = a["user_id"], a.get("payload") or {}
+                    sh = camp["sheets"].setdefault(uid, {})
+                    sh = camp["sheets"][uid] = dict(sh)
+                    if pl.get("hp") is not None:
+                        sh["hp"] = int(pl["hp"])
+                    if pl.get("hp_delta"):
+                        sh["hp"] = int(sh.get("hp") or 0) + int(pl["hp_delta"])
+                    if pl.get("xp"):
+                        sh["xp"] = int(sh.get("xp") or 0) + int(pl["xp"])
+                    camp["waiting"][uid] = camp["waiting"].get(uid, 0) + 1
             camp["online"] = True
-            camp["error"] = None
             camp["last_sync"] = time.time()
         except (SyncError, OSError, asyncio.TimeoutError) as ex:
             camp["online"] = False
@@ -372,6 +430,60 @@ class Client:
         await self.req("POST", f"/storage/v1/object/{BUCKET}/{path}", raw=data, content_type="image/jpeg")
         await self.req("POST", "/rest/v1/shared_images", {"campaign_id": sid, "title": title or "Obrázek",
                                                           "path": path}, prefer="return=minimal")
+
+    async def _receive_from_gm(self, c: dict, camp: dict) -> None:
+        """Hráč: zapíše úpravy od PJ do deníku a převezme tajné zprávy (bez tabulek na serveru nic)."""
+        cid = camp["id"]
+        try:
+            adj = await self.req("GET", f"/rest/v1/adjustments?campaign_id=eq.{cid}&user_id=eq.{self.uid}"
+                                        "&applied=eq.false&select=id,payload&order=id.asc")
+            msgs = await self.req("GET", f"/rest/v1/messages?campaign_id=eq.{cid}&to_user=eq.{self.uid}"
+                                         "&select=id,body,created_at&order=id.asc")
+        except SyncError as ex:
+            if _missing_table(ex):
+                return
+            raise
+        texts, done = [], []
+        for a in adj or []:
+            txt = apply_adjustment(c, a.get("payload") or {})
+            if txt:
+                texts.append(txt)
+            done.append(a["id"])
+        if done:
+            await self.req("PATCH", f"/rest/v1/adjustments?id=in.({','.join(str(i) for i in done)})",
+                           {"applied": True}, prefer="return=minimal")
+        seen = int(camp.get("msg_seen", 0))
+        new_msgs = [m for m in msgs or [] if int(m["id"]) > seen]
+        for m in new_msgs:
+            c.setdefault("notes", []).append({"id": f"pj-{m['id']}", "title": "Tajná zpráva od PJ", "text": m["body"],
+                                              "tag": "Ostatní", "pinned": True, "ts": time.time()})
+            camp["msg_seen"] = max(int(camp.get("msg_seen", 0)), int(m["id"]))
+            texts.append("tajná zpráva v Deníku")
+        if texts:
+            camp["notice"] = "PJ: " + " · ".join(texts)
+
+    async def gm_adjust(self, camp: dict, uid: str, payload: dict) -> None:
+        await self.req("POST", "/rest/v1/adjustments", {"campaign_id": camp["sid"], "user_id": uid, "payload": payload},
+                       prefer="return=minimal")
+
+    async def gm_message(self, camp: dict, uid: str, body: str) -> None:
+        await self.req("POST", "/rest/v1/messages", {"campaign_id": camp["sid"], "to_user": uid, "body": body[:1000]},
+                       prefer="return=minimal")
+
+    async def gm_flush(self, camp: dict) -> None:
+        """Odešle úpravy a zprávy, které čekají ve frontě kampaně PJ."""
+        out = camp.get("outbox") or []
+        while out and camp.get("sid"):
+            op = out[0]
+            try:
+                if op.get("op") == "adjust":
+                    await self.gm_adjust(camp, op["uid"], op["payload"])
+                elif op.get("op") == "message":
+                    await self.gm_message(camp, op["uid"], op["body"])
+            except SyncError as ex:
+                camp["error"] = NO_TABLE if _missing_table(ex) else str(ex)
+                return
+            out.pop(0)
 
     async def gm_roll(self, camp: dict, label: str, result: str, hidden: bool) -> None:
         if camp.get("sid"):
@@ -403,6 +515,8 @@ class Client:
                 await self.req("PATCH", f"/rest/v1/members?campaign_id=eq.{cid}&user_id=eq.{self.uid}", {
                     "snapshot": snapshot(c), "share_rolls": camp["share_rolls"], "share_hp": camp["share_hp"],
                     "last_seen": _iso()}, prefer="return=minimal")
+                if camp["role"] == "player":
+                    await self._receive_from_gm(c, camp)
                 sh = sheet(c)
                 digest = hashlib.sha1(json.dumps(sh, sort_keys=True, default=str).encode()).hexdigest()
                 if digest != camp.get("sheet_hash"):
