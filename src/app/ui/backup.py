@@ -27,15 +27,16 @@ async def build_backup(app) -> bytes:
             data = app.images.get(ref) or await app.store.load_image(ref)
             if data:
                 images[ref] = base64.b64encode(data).decode("ascii")
-    for cid in app.gm_order:  # připravené mapy PJ
-        for mp in app.gm[cid].get("maps", []):
-            data = app.images.get(mp.get("ref")) or await app.store.load_image(mp.get("ref", ""))
+    for cid in app.gm_order:  # připravené mapy PJ (i u zamčených kampaní)
+        camp = app.gm[cid]
+        for ref in {m.get("ref") for m in camp.get("maps") or []} | set(camp.get("map_refs") or []):
+            data = (app.images.get(ref) or await app.store.load_image(ref)) if ref else None
             if data:
-                images[mp["ref"]] = base64.b64encode(data).decode("ascii")
+                images[ref] = base64.b64encode(data).decode("ascii")
     payload = {
         "app": "denik-dobrodruha", "format": FORMAT, "exported": time.strftime("%Y-%m-%d %H:%M"),
         "order": list(app.order), "chars": [app.chars[cid] for cid in app.order],
-        "gm": [app.gm[cid] for cid in app.gm_order],
+        "gm": [app.stored_gm(app.gm[cid]) for cid in app.gm_order],  # poznámky a mapy šifrované
         "bestiary": app.bestiary, "settings": {k: v for k, v in app.settings.items() if k != "last_backup"},
         "images": images,
     }
@@ -71,6 +72,9 @@ async def restore(app, data: dict) -> int:
                 img["ref"] = remap[img["ref"]]
         if c.get("avatar") in remap:
             c["avatar"] = remap[c["avatar"]]
+        for n in c.get("notes") or []:
+            if n.get("tag") == "Postava":
+                n["tag"] = "Osoba"
         app.chars[c["id"]] = c
         if c["id"] not in app.order:
             app.order.append(c["id"])
@@ -80,10 +84,17 @@ async def restore(app, data: dict) -> int:
     for camp in data.get("gm") or []:  # kampaně PJ
         if not isinstance(camp, dict) or "id" not in camp or "system" not in camp:
             continue
-        for mp in camp.get("maps", []):
+        for mp in camp.get("maps") or []:
             if mp.get("ref") in remap:
                 mp["ref"] = remap[mp["ref"]]
+        if camp.get("map_refs"):  # mapy v šifrovaném trezoru: přečíslování se použije po odemčení
+            moved = {r: remap[r] for r in camp["map_refs"] if r in remap}
+            if moved:
+                camp["ref_map"] = {**(camp.get("ref_map") or {}), **moved}
+                camp["map_refs"] = [remap.get(r, r) for r in camp["map_refs"]]
         app.gm[camp["id"]] = camp
+        app.gm_unlocked.discard(camp["id"])
+        app.gm_keys.pop(camp["id"], None)
         if camp["id"] not in app.gm_order:
             app.gm_order.append(camp["id"])
         await app.store.set_json("gm." + camp["id"], camp)

@@ -284,6 +284,9 @@ def _edit_campaign(app, camp) -> None:
                 app.toast("Nové heslo musí mít aspoň 4 znaky.")
             else:
                 camp["pw"] = hash_password(new)
+                camp.pop("vsalt", None)  # nová sůl a klíč šifrování; uložení data zašifruje novým heslem
+                app.gm_keys.pop(camp["id"], None)
+                app.unlock_gm(camp, new)
                 app.toast("Heslo kampaně změněno.")
         app.save_gm(camp)
         app.refresh()

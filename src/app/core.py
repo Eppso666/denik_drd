@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import flet as ft
 
-from . import model, sync, theme
+from . import model, sync, theme, vault
 from .storage import Storage
 from .ui.kit import Kit
 
@@ -33,7 +34,6 @@ PARENTS: dict[str, str | None] = {
     "batoh": None,
     "kostky": None,
     "denik": None,
-    "souboj": "kostky",
     "postup": "postava",
     "dovednosti": "postava",
     "kouzla": "postava",
@@ -83,6 +83,7 @@ class App:
         self.gm_order: list[str] = []
         self.gm_active: str | None = None
         self.gm_unlocked: set[str] = set()
+        self.gm_keys: dict[str, bytes] = {}  # klíče k šifrovaným datům kampaní – jen v paměti
         self.pj_content: dict = {}
 
     # --- stav ----------------------------------------------------------------
@@ -119,6 +120,9 @@ class App:
         for cid in list(self.order):
             c = await self.store.get_json("char." + cid, None)
             if c:
+                for n in c.get("notes") or []:  # štítek „Postava“ je od 0.15.0 záložka Deníku → „Osoba“
+                    if n.get("tag") == "Postava":
+                        n["tag"] = "Osoba"
                 self.chars[cid] = c
             else:
                 self.order.remove(cid)
@@ -234,10 +238,43 @@ class App:
         await self.store.set_json("order", self.order)
 
     # --- Pán jeskyně ---------------------------------------------------------
+    GM_SECRET = ("notes", "maps")  # šifruje se heslem kampaně
+
+    def unlock_gm(self, camp: dict, password: str) -> bool:
+        """Po zadání hesla: odvodí klíč a rozšifruje poznámky a mapy kampaně. False = data nejdou otevřít."""
+        from .ui.start import PW_ROUNDS
+
+        if not camp.get("vsalt"):
+            camp["vsalt"], camp["vrounds"] = os.urandom(16).hex(), PW_ROUNDS
+        key = vault.derive(password, camp["vsalt"], int(camp.get("vrounds") or PW_ROUNDS))
+        if camp.get("vault"):
+            try:
+                data = vault.open_box(key, camp["vault"])
+            except (ValueError, KeyError, TypeError):
+                return False
+            refs = camp.pop("ref_map", None) or {}
+            for mp in data.get("maps") or []:
+                if mp.get("ref") in refs:
+                    mp["ref"] = refs[mp["ref"]]
+            camp.update(data)
+        self.gm_keys[camp["id"]] = key
+        self.gm_unlocked.add(camp["id"])
+        return True
+
+    def stored_gm(self, camp: dict) -> dict:
+        """Kampaň, jak se ukládá (i do zálohy): poznámky a mapy jen zašifrované, když je klíč k dispozici."""
+        key = self.gm_keys.get(camp["id"])
+        if key is None:
+            return camp  # zamčená kampaň drží jen šifrovaný trezor
+        st = {k: v for k, v in camp.items() if k not in self.GM_SECRET}
+        st["vault"] = camp["vault"] = vault.seal(key, {k: camp.get(k) or [] for k in self.GM_SECRET})
+        st["map_refs"] = camp["map_refs"] = [m["ref"] for m in camp.get("maps") or [] if m.get("ref")]
+        return st
+
     def save_gm(self, camp: dict) -> None:
         async def _save():
             try:
-                await self.store.set_json("gm." + camp["id"], camp)
+                await self.store.set_json("gm." + camp["id"], self.stored_gm(camp))
                 await self.store.set_json("gm_order", self.gm_order)
             except Exception as ex:  # pragma: no cover
                 self.toast(f"Uložení se nepovedlo: {ex}")
@@ -253,12 +290,13 @@ class App:
         camp = self.gm.pop(cid, None)
         if cid in self.gm_order:
             self.gm_order.remove(cid)
-        for m in (camp or {}).get("maps", []):
-            if m.get("ref"):
-                await self.store.delete_image(m["ref"])
+        refs = {m.get("ref") for m in (camp or {}).get("maps") or []} | set((camp or {}).get("map_refs") or [])
+        for ref in refs - {None, ""}:
+            await self.store.delete_image(ref)
         await self.store.remove("gm." + cid)
         await self.store.set_json("gm_order", self.gm_order)
         self.gm_unlocked.discard(cid)
+        self.gm_keys.pop(cid, None)
         if self.gm_active == cid:
             self.gm_active = None
 

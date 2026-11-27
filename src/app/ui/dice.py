@@ -176,15 +176,15 @@ def _weapon_tab(app, exploding: bool) -> list[ft.Control]:
               (f" {fmt(pen)} ({', '.join(why)})" if pen else ""), l.hi, die=die)
 
     parts = defense_parts(c, w)
-    off_all = app.ui.setdefault("def_off", {})
-    off = set(off_all.get(c["id"], []))
+    off = set(c.get("def_off") or [])  # vyřazené z obrany – uloží se k postavě
     total = defense_total(c, parts, off)
 
     def toggle(pid):
         def h(e):
-            cur = set(off_all.get(c["id"], []))
+            cur = set(c.get("def_off") or [])
             cur.symmetric_difference_update({pid})
-            off_all[c["id"]] = sorted(cur)
+            c["def_off"] = sorted(cur)
+            app.save(c)
             app.refresh()
         return h
 
@@ -477,177 +477,3 @@ def _pm_card(app, pm: int, base: int) -> ft.Control:
 
 
 # --- souboj --------------------------------------------------------------------
-
-def _default_foe(app) -> dict:
-    sys = app.char["system"]
-    best = app.bestiary.get(sys, [])
-    if best:
-        return foe_from_beast(best[0])
-    return {"name": "Soupeř", "uc": 3, "oc": 3, "hp": 10, "hp_max": 10, "dmg": 0}
-
-
-def foe_from_beast(b: dict) -> dict:
-    hp = int(b.get("hp", 10) or 10)
-    size = str(b.get("size", "") or "B").strip().upper()[:2]
-    if size not in drd.SIZES:
-        size = "B"
-    return {"name": b.get("name", "Soupeř"), "uc": int(b.get("uc", 0)), "oc": int(b.get("oc", 0)), "hp": hp,
-            "hp_max": hp, "dmg": int(b.get("dmg", 0)), "size": size}
-
-
-RANGES = ["malý", "střední", "velký"]
-
-
-def souboj(app):
-    from ..core import Screen
-
-    c = app.char
-    k = app.kit
-    l = app.look
-    r = model.rules(c["system"])
-    is_dh = c["system"] == "dh"
-    exploding = app.settings.get("dh_exploding", True) if is_dh else True
-    foe = app.ui.get("foe")
-    if not foe or foe.get("sys") != c["system"]:
-        foe = _default_foe(app)
-        foe["sys"] = c["system"]
-        app.ui["foe"] = foe
-        app.ui["fight_log"] = []
-        app.ui["round"] = 1
-    log = app.ui.setdefault("fight_log", [])
-    ws = model.weapons(c)
-    wi = min(app.ui.get("dice_weapon", 0), len(ws) - 1)
-    w = ws[wi]
-    uc = model.uc(c, w)
-    my_oc = model.oc(c, w)
-    pen, why = model.combat_penalty(c)
-    my_size = model.size(c)
-    foe_size = foe.get("size", "B")
-    dist = app.ui.get("fight_range", "střední")
-    if is_dh:
-        att_mod, foe_mod, mod_txt = pen, 0, ", ".join(why)
-    elif w.get("ranged"):
-        rmod = {"malý": 1, "střední": 0, "velký": -1}[dist]
-        att_mod = pen + rmod + drd.ranged_size_mod(foe_size)
-        foe_mod = 0
-        mod_txt = ", ".join(why + [f"dostřel {dist} {fmt(rmod)}"] +
-                            ([f"cíl {foe_size} +1"] if drd.ranged_size_mod(foe_size) else []))
-    else:
-        smod = drd.size_mod(my_size, foe_size)
-        att_mod = pen + smod
-        foe_mod = drd.size_mod(foe_size, my_size)
-        mod_txt = ", ".join(why + ([f"velikost {my_size} proti {foe_size} {fmt(smod)}"] if smod else []))
-    def_mod = pen  # postih za zranění, naložení či únavu platí i pro obranu
-
-    def roll():
-        return open_d6() if exploding else [d(6)]
-
-    def note(text, color):
-        log.insert(0, {"t": text, "c": color})
-        del log[8:]
-
-    def my_attack(e):
-        a, dd = roll(), roll()
-        at, de = uc + sum(a) + att_mod, foe["oc"] + sum(dd)
-        wound = r.wound(at, de, int(w.get("damage", 0)))
-        mtxt = f" {fmt(att_mod)}" if att_mod else ""
-        if wound:
-            foe["hp"] = foe["hp"] - wound
-            note(f"Útok {at} ({uc}+{roll_expr(a)}{mtxt}) proti obraně {de} ({foe['oc']}+{roll_expr(dd)}) – zásah za {wound}",
-                 l.hi)
-            if foe["hp"] <= 0:
-                note(f"{foe['name']} padl!", l.ok)
-        else:
-            note(f"Útok {at} proti obraně {de} – vedle", l.mana)
-        app.ui["round"] += 1
-        app.refresh()
-
-    def foe_attack(e):
-        a, dd = roll(), roll()
-        at, de = foe["uc"] + sum(a) + foe_mod, my_oc + sum(dd) + def_mod
-        wound = r.wound(at, de, foe["dmg"])
-        if wound:
-            c["hp"] -= wound
-            model.add_history(c, f"Zranění od: {foe['name']}", f"−{wound}")
-            app.save(c)
-            note(f"{foe['name']}: útok {at} proti tvé obraně {de} – zranění {wound}", l.bad)
-            st = model.status(c)
-            if st:
-                note(f"Ty: {st[0]}", l.bad)
-        else:
-            note(f"{foe['name']}: útok {at} proti tvé obraně {de} – ubránil ses", l.ok)
-        app.refresh()
-
-    def initiative(e):
-        if is_dh:
-            kk, mine = dh.initiative(dh.bonus(c["attrs"][1]))
-            theirs = d(6)
-            note(f"Iniciativa: ty {mine} (k6 {kk} {fmt(dh.bonus(c['attrs'][1]))} OBR), soupeř {theirs}", l.ink)
-        else:
-            mine, theirs = d(6), d(6)
-            note(f"Iniciativa: ty {mine}, soupeř {theirs}" + (" – začínáš" if mine > theirs else
-                                                              " – začíná soupeř" if theirs > mine else " – znovu"), l.ink)
-        app.refresh()
-
-    def edit_foe(e):
-        names = ["(vlastní)"] + [b["name"] for b in app.bestiary.get(c["system"], [])]
-
-        def save(v):
-            if v["pick"] and v["pick"] != "(vlastní)":
-                b = next(b for b in app.bestiary[c["system"]] if b["name"] == v["pick"])
-                nf = foe_from_beast(b)
-            else:
-                nf = {"name": v["name"] or "Soupeř", "uc": v["uc"], "oc": v["oc"], "hp": v["hp"], "hp_max": v["hp"],
-                      "dmg": v["dmg"], "size": v.get("size") or "B"}
-            nf["sys"] = c["system"]
-            app.ui["foe"] = nf
-            app.ui["fight_log"] = []
-            app.ui["round"] = 1
-            app.refresh()
-        app.form("Soupeř", [("pick", "Z bestiáře", "(vlastní)", "choice", names),
-                            ("name", "Jméno", foe["name"], "text"), ("uc", "ÚČ", foe["uc"], "int"),
-                            ("oc", "OČ", foe["oc"], "int"), ("hp", "Životy", foe["hp_max"], "int"),
-                            ("dmg", "Zranění zbraně / útočnost", foe["dmg"], "int")] +
-                 ([] if is_dh else [("size", "Velikost (A0, A, B, C, D, E)", foe.get("size", "B"), "choice", drd.SIZES)]),
-                 save, save_label="Nastavit")
-
-    me_card = k.card(ft.Column([
-        k.muted("TY", size=11, weight=ft.FontWeight.BOLD),
-        k.text(c["name"].split()[0], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
-        k.muted(w["name"], max_lines=1),
-        k.text(f"ÚČ {uc} · {'OČ' if is_dh else 'obr.'} {my_oc}", size=17, weight=ft.FontWeight.BOLD, head=True,
-               color=l.hi),
-        k.muted(f"velikost {my_size}" + (f" · postih {pen}" if pen else ""), size=12),
-        k.bar(c["hp"], c["hp_max"], l.hp), k.muted(f"Životy {c['hp']} / {c['hp_max']}"),
-    ], spacing=3), padding=12)
-    foe_card = k.card(ft.Column([
-        k.muted("SOUPEŘ", size=11, weight=ft.FontWeight.BOLD),
-        k.text(foe["name"], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
-        k.muted(f"zranění {fmt(foe['dmg'])}" + ("" if is_dh else f" · velikost {foe_size}")),
-        k.text(f"ÚČ {foe['uc']} · OČ {foe['oc']}", size=17, weight=ft.FontWeight.BOLD, head=True, color=l.mana),
-        k.bar(max(0, foe["hp"]), foe["hp_max"], l.hp), k.muted(f"Životy {foe['hp']} / {foe['hp_max']}"),
-    ], spacing=3), padding=12, on_click=edit_foe)
-
-    weapon_pills = k.pills([x["name"] for x in ws], w["name"],
-                           lambda v: app.go("souboj", dice_weapon=[x["name"] for x in ws].index(v)))
-    log_rows = [k.text(x["t"], size=13, color=x["c"]) for x in log] or [k.muted("Zatím žádné hody.")]
-    controls = [
-        ft.Row([ft.Container(me_card, expand=1), ft.Container(foe_card, expand=1)], spacing=8,
-               vertical_alignment=ft.CrossAxisAlignment.START),
-        k.muted("Klepnutím na soupeře ho změníš nebo vybereš z bestiáře.", size=12),
-        weapon_pills,
-        *([k.pills(RANGES, dist, lambda v: app.go("souboj", fight_range=v), equal=True)]
-          if (w.get("ranged") and not is_dh) else []),
-        *([k.muted(f"Opravy útoku: {mod_txt} = {fmt(att_mod)}", size=12)] if (att_mod or mod_txt) else []),
-        ft.Row([k.button("Útočím", my_attack, expand=1), k.button("Soupeř útočí", foe_attack, primary=False, expand=1)],
-               spacing=8),
-        ft.Row([k.button("Iniciativa", initiative, primary=False, expand=1),
-                k.button("Nový boj", lambda e: (app.ui.update({"foe": None}), app.refresh()), primary=False, expand=1)],
-               spacing=8),
-        k.section(f"Průběh · kolo {app.ui.get('round', 1)}"),
-        k.card(ft.Column(log_rows, spacing=6)),
-        k.muted(("Útok ÚČ + k6, obrana OČ + k6" + (" (šestka se hází znovu)" if exploding else "") +
-                 ". Zranění = rozdíl + zranění zbraně.") if is_dh else
-                "Útok ÚČ + k6+, obrana OČ + k6+. Zranění = rozdíl + útočnost zbraně (nejméně 1)."),
-    ]
-    return Screen("Souboj", [column(controls)])

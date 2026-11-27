@@ -1,9 +1,17 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.16.3"
+VERSION = "0.17.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.17.0": [
+        "Poznámky a mapy Pána jeskyně jsou v zařízení i v záloze zašifrované heslem kampaně "
+        "(obrázky map zůstávají nešifrované).",
+        "Záloha je i v Doupěti pána jeskyně.",
+        "Co v Kostkách → Souboj vyřadíš z obrany, zůstane uložené u postavy.",
+        "Staré poznámky se štítkem „Postava“ mají štítek „Osoba“.",
+        "Úklid: odstraněny obrazovky hráče, kam už nic nevedlo (Souboj se soupeřem, Bestiář).",
+    ],
     "0.16.3": [
         "Pán jeskyně vidí v deníku hráče i opravy vlastností.",
         "Webová verze a telefon mají písma Cinzel a Alegreya jako na PC.",

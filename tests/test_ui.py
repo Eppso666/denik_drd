@@ -6,7 +6,7 @@ from app import model
 from app.ui import magic, start
 from conftest import Ev, drain, walk
 
-SCREENS = ["postava", "batoh", "katalog", "kostky", "souboj", "postup", "dovednosti", "denik"]
+SCREENS = ["postava", "batoh", "katalog", "kostky", "postup", "dovednosti", "denik"]
 
 
 def handlers(view_list):
@@ -309,10 +309,6 @@ def test_status_penalty_and_fight_mods(make_app):
     assert model.combat_penalty(c)[0] == -1
     texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
     assert any("vyřazení při 2" in t for t in texts)
-    app.ui["foe"] = {"name": "Drak", "uc": 10, "oc": 8, "hp": 80, "hp_max": 80, "dmg": 3, "size": "E", "sys": "drd"}
-    app.go("souboj")
-    texts = [str(getattr(x, "value", "")) for v in page.views for x in walk(v)]
-    assert any("velikost A proti E −4" in t or "velikost A proti E -4" in t for t in texts)
     assert click_everything(app, page) > 0
 
 
@@ -708,7 +704,7 @@ def test_kostky_souboj_defense(make_app):
     assert dice.defense_total(c, parts, set()) == model.oc(c, w)
     box = next(x for v in page.views for x in walk(v) if str(getattr(x, "data", "")).startswith("def:stit"))
     box.on_click(Ev(box))
-    assert dice.defense_total(c, parts, set(app.ui["def_off"][c["id"]])) == model.oc(c, w) - 2
+    assert dice.defense_total(c, parts, set(c["def_off"])) == model.oc(c, w) - 2
     btn = next(x for v in page.views for x in walk(v) if getattr(x, "data", None) == "defend")
     btn.on_click(Ev(btn))
     assert app.ui["dice_last"]["label"] == "Obrana"
@@ -820,11 +816,12 @@ def test_player_has_no_bestiary(make_app):
 
 def test_password_hash_without_openssl(monkeypatch):
     import hashlib
+    from app import vault
     from app.ui import start as st
     salt = bytes(range(16))
     fast = hashlib.pbkdf2_hmac("sha256", b"drak1234", salt, 1000)
     monkeypatch.delattr(hashlib, "pbkdf2_hmac")
-    assert st._pbkdf2(b"drak1234", salt, 1000) == fast
+    assert vault.pbkdf2(b"drak1234", salt, 1000) == fast
     camp = {"pw": st.hash_password("drak1234")}
     assert st.check_password(camp, "drak1234") and not st.check_password(camp, "drak123")
 
@@ -864,3 +861,27 @@ def test_fonts_on_web_and_phone(monkeypatch):
     import main
     monkeypatch.setattr(_sys, "platform", "emscripten")
     assert set(main.available_fonts()) == set(main.FONT_FILES)
+
+
+def test_gm_notes_encrypted_with_campaign_password(make_app):
+    """Poznámky a mapy PJ jsou v zařízení i v záloze jen šifrované; otevře je jen heslo kampaně."""
+    import asyncio as _a
+    import json as _j
+    from app.ui import backup, start as st
+    app, page = make_app()
+    camp = st.new_gm_campaign("drd", "Věž", "drak1234")
+    app.unlock_gm(camp, "drak1234")
+    camp["notes"].append({"id": "n1", "title": "Tajemství", "text": "Krysař je kníže"})
+    camp["maps"].append({"id": "m1", "title": "Krypta", "ref": "img-x", "shared": False})
+    app.add_gm(camp)
+    drain(page)
+    raw = _j.dumps(app.store.data)
+    assert "Krysař je kníže" not in raw and "Krypta" not in raw and "vault" in raw
+    blob = _a.run(backup.build_backup(app))
+    assert b"Krysa" not in blob and "Krysař je kníže".encode() not in blob
+    # nové spuštění: kampaň z úložiště, zamčená
+    stored = app.store.data["gm." + camp["id"]]
+    again = _j.loads(_j.dumps(stored))
+    assert not again.get("notes") and not app.unlock_gm(dict(again, id="jiná"), "spatne")
+    assert app.unlock_gm(again, "drak1234") and again["notes"][0]["text"] == "Krysař je kníže"
+    assert again["maps"][0]["title"] == "Krypta"

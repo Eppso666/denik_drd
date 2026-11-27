@@ -6,7 +6,6 @@ import time
 import flet as ft
 
 from .. import model
-from ..rules.common import fmt
 from .kit import column
 
 NOTE_TAGS = ["Úkol", "Osoba", "Místo", "Ostatní"]  # „Postava“ je teď samostatná záložka Deníku
@@ -35,63 +34,6 @@ def _thumb(app, ref: str | None, size: int) -> ft.Control:
 
 
 # --- bestiář -----------------------------------------------------------------------
-
-def bestiar(app):
-    from ..core import Screen
-
-    sys = app.char["system"]
-    k = app.kit
-    l = app.look
-    beasts = app.bestiary[sys]
-    q = (app.ui.get("beast_q") or "").lower()
-    shown = [b for b in beasts if q in (b.get("name", "") + " " + b.get("kind", "")).lower()]
-    opened = app.ui.get("beast_open")
-
-    def on_search(e):
-        app.ui["beast_q"] = e.control.value
-        app.refresh()
-
-    search = ft.TextField(hint_text="Hledat bytost…", value=app.ui.get("beast_q", ""), on_submit=on_search,
-                          on_blur=on_search, prefix_icon=ft.Icons.SEARCH, border_color=l.frame,
-                          focused_border_color=l.hi, color=l.ink, dense=True)
-
-    cards: list[ft.Control] = []
-    for b in shown:
-        stats = (f"ÚČ {b.get('uc', 0)} · OČ {b.get('oc', 0)} · životy {b.get('hp', 0)}" if sys == "dh" else
-                 f"Útok {b.get('uc', 0)}/{fmt(int(b.get('dmg', 0)))} · OČ {b.get('oc', 0)} · životy {b.get('hp', 0)}")
-        head = ft.Row([
-            _thumb(app, b.get("image"), 56),
-            ft.Column([k.text(b["name"], size=16, weight=ft.FontWeight.BOLD, max_lines=1),
-                       k.muted(b.get("kind", ""), max_lines=1), k.muted(stats)], spacing=2, expand=True),
-        ], spacing=12)
-        if opened == b["id"]:
-            detail = [head]
-            fields = DH_FIELDS if sys == "dh" else DRD_FIELDS
-            pairs = [(lbl, b.get(key)) for key, lbl, kind in fields[2:] if kind != "long" and b.get(key) not in (None, "")]
-            grid = ft.Column([ft.Row([k.muted(lbl, expand=True), k.text(val, size=14, weight=ft.FontWeight.W_600)])
-                              for lbl, val in pairs], spacing=4)
-            detail.append(grid)
-            if b.get("note"):
-                detail.append(k.muted(b["note"], size=14))
-            detail.append(ft.Row([
-                k.button("Upravit", lambda e, b=b: edit_beast(app, b), primary=False, expand=1, height=44),
-                ft.IconButton(ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED, icon_color=l.ink, tooltip="Přidat obrázek",
-                              on_click=lambda e, b=b: app.run(beast_image(app, b))),
-            ], spacing=8))
-            cards.append(k.card(ft.Column(detail, spacing=10), accent=True,
-                                on_click=lambda e: app.go("bestiar", beast_open=None)))
-        else:
-            cards.append(k.card(head, on_click=lambda e, b=b: app.go("bestiar", beast_open=b["id"]), padding=10))
-
-    info = ("Bytosti si zapisuješ sám (podle dobrodružství nebo od PJ). Bestiář je společný pro všechny tvé "
-            "postavy v Dračí Hlídce." if sys == "dh" else
-            "Bytosti si zapisuješ sám v klasickém zápisu DrD. Bestiář je společný pro všechny tvé postavy v DrD 1.6.")
-    controls = [search, *(cards or [k.empty("Bestiář je prázdný. Přidej první bytost tlačítkem +.")]),
-                k.muted(info, size=12), ft.Container(height=70)]
-    fab = ft.FloatingActionButton(icon=ft.Icons.ADD, bgcolor=l.accent, foreground_color=l.on_accent,
-                                  tooltip="Nová bytost", on_click=lambda e: edit_beast(app, None))
-    return Screen("Bestiář", [column(controls)], fab=fab)
-
 
 def edit_beast(app, b: dict | None) -> None:
     sys = app.char["system"]
@@ -147,7 +89,7 @@ def denik(app):
     if tab == "Poznámky":
         notes = sorted(c["notes"], key=lambda n: (not n.get("pinned"), -n.get("ts", 0)))
         for n in notes:
-            tag_color = {"Úkol": l.hi, "Osoba": l.mana, "Postava": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
+            tag_color = {"Úkol": l.hi, "Osoba": l.mana, "Místo": l.ok}.get(n.get("tag"), l.muted)
             body.append(k.card(ft.Column([
                 ft.Row([k.badge((n.get("tag") or "Ostatní").upper() + (" · PŘIPNUTO" if n.get("pinned") else ""),
                                 color=tag_color, fg=l.on_accent if l.dark else l.card),

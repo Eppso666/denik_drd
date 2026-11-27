@@ -13,7 +13,6 @@ BUILDERS = {
     "dovednosti": character.dovednosti,
     "batoh": inventory.batoh,
     "kostky": dice.kostky,
-    "souboj": dice.souboj,
     "denik": journal.denik,
     "kouzla": magic.kouzla,
     "obor": magic.obor,

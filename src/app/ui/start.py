@@ -1,14 +1,13 @@
 """Společné obrazovky: výběr postavy a generátor postavy."""
 from __future__ import annotations
 
-import hashlib
 import hmac
 import os
 import time
 
 import flet as ft
 
-from .. import model, theme, version
+from .. import model, theme, vault, version
 from ..version import VERSION
 from ..rules import dh, drd
 from ..rules.common import fmt
@@ -100,40 +99,10 @@ def start(app):
 PW_ROUNDS = 20_000
 
 
-def _pbkdf2(password: bytes, salt: bytes, rounds: int) -> bytes:
-    """PBKDF2-HMAC-SHA256. Webová verze a Android (Python bez OpenSSL) nemají hashlib.pbkdf2_hmac,
-    proto náhradní výpočet v čistém Pythonu (stejný výsledek)."""
-    fast = getattr(hashlib, "pbkdf2_hmac", None)
-    if fast is not None:
-        try:
-            return fast("sha256", password, salt, rounds)
-        except (ValueError, AttributeError):  # pragma: no cover - sha256 bez OpenSSL
-            pass
-    if len(password) > 64:
-        password = hashlib.sha256(password).digest()
-    key = password.ljust(64, b"\0")
-    inner = hashlib.sha256(bytes(b ^ 0x36 for b in key))
-    outer = hashlib.sha256(bytes(b ^ 0x5C for b in key))
-
-    def prf(msg: bytes) -> bytes:
-        i = inner.copy()
-        i.update(msg)
-        o = outer.copy()
-        o.update(i.digest())
-        return o.digest()
-
-    u = prf(salt + b"\x00\x00\x00\x01")
-    acc = int.from_bytes(u, "big")
-    for _ in range(rounds - 1):
-        u = prf(u)
-        acc ^= int.from_bytes(u, "big")
-    return acc.to_bytes(32, "big")
-
-
 def hash_password(password: str, salt: bytes | None = None) -> dict:
     """Heslo kampaně se neukládá – jen sůl a otisk (PBKDF2-SHA256)."""
     salt = salt or os.urandom(16)
-    digest = _pbkdf2(password.encode("utf-8"), salt, PW_ROUNDS)
+    digest = vault.pbkdf2(password.encode("utf-8"), salt, PW_ROUNDS)
     return {"salt": salt.hex(), "hash": digest.hex(), "rounds": PW_ROUNDS}
 
 
@@ -141,7 +110,7 @@ def check_password(camp: dict, password: str) -> bool:
     pw = camp.get("pw") or {}
     if not pw.get("salt"):
         return True
-    digest = _pbkdf2(password.encode("utf-8"), bytes.fromhex(pw["salt"]), int(pw.get("rounds", PW_ROUNDS)))
+    digest = vault.pbkdf2(password.encode("utf-8"), bytes.fromhex(pw["salt"]), int(pw.get("rounds", PW_ROUNDS)))
     return hmac.compare_digest(digest.hex(), pw.get("hash", ""))
 
 
@@ -162,8 +131,9 @@ def doupe(app):
         *(cards or [k.empty("Zatím žádný příběh. Založ první kampaň – dostane název a heslo.")]),
         k.button("Nový příběh (kampaň)", lambda e: new_campaign_dialog(app), primary=not cards,
                  icon=ft.Icons.WORKSPACE_PREMIUM_OUTLINED, height=48),
-        k.note("Každou kampaň chrání její heslo – bez něj se Stůl PJ neotevře. Hráči heslo neznají: kód kampaně "
-               "zadají u své postavy v Družině → Připojit se."),
+        k.note("Každou kampaň chrání její heslo – bez něj se Stůl PJ neotevře a poznámky i mapy PJ jsou "
+               "zašifrované. Hráči heslo neznají: kód kampaně zadají u své postavy v Družině → Připojit se."),
+        backup.backup_card(app),
     ]
     return Screen("Doupě pána jeskyně", [column(controls)])
 
@@ -222,8 +192,8 @@ def new_campaign_dialog(app) -> None:
             return
         system = "dh" if v.get("game") == dh.NAME else "drd"
         camp = new_gm_campaign(system, name, pw)
+        app.unlock_gm(camp, pw)
         app.add_gm(camp)
-        app.gm_unlocked.add(camp["id"])
         app.gm_active = camp["id"]
         app.go("pj_kampan")
         from . import pj
@@ -246,10 +216,13 @@ def open_campaign(app, camp: dict) -> None:
         return
 
     def save(v):
-        if check_password(camp, v.get("pw") or ""):
-            app.open_gm(camp["id"])
-        else:
+        pw = v.get("pw") or ""
+        if not check_password(camp, pw):
             app.toast("Špatné heslo.")
+        elif not app.unlock_gm(camp, pw):
+            app.toast("Poznámky kampaně se nepodařilo rozšifrovat – data jsou poškozená.")
+        else:
+            app.open_gm(camp["id"])
     app.form(camp["name"], [("info", "", "Zadej heslo kampaně. Bez něj se Doupě pána jeskyně neotevře.", "info"),
                             ("pw", "Heslo kampaně", "", "password")], save, save_label="Otevřít")
 
