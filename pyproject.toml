@@ -1,6 +1,6 @@
 [project]
 name = "denik-dobrodruha"
-version = "0.18.0"
+version = "0.19.0"
 description = "Deník postavy pro Dračí Hlídku a Dračí doupě 1.6"
 requires-python = ">=3.10"
 dependencies = [

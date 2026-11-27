@@ -134,7 +134,15 @@ def snapshot(c: dict) -> dict:
 
 def sheet(c: dict) -> dict:
     """Kopie deníku pro PJ (bez poznámek, obrázků a historie)."""
-    return {k: c[k] for k in SHEET_KEYS if k in c}
+    out = {k: c[k] for k in SHEET_KEYS if k in c}
+    if c.get("system") == "drd" and c.get("attrs") and c.get("race"):
+        try:  # okamžitá pohyblivost pro PJ (družina jde rychlostí nejpomalejšího)
+            from . import model
+            from .rules import drd
+            out["move"] = drd.movement(c["race"], c["attrs"], model.load_ratio(c))
+        except Exception:  # noqa: BLE001 – neúplný deník
+            pass
+    return out
 
 
 def is_online(member: dict, now: float | None = None) -> bool:
@@ -175,6 +183,12 @@ def apply_adjustment(c: dict, p: dict) -> str:
     if p.get("xp"):
         c["xp"] = int(c.get("xp", 0)) + int(p["xp"])
         parts.append(f"Zkušenosti {int(p['xp']):+d}")
+    if p.get("level_drain") and c.get("system", "drd") == "drd":
+        from .rules import drd_pj
+        for _ in range(max(0, min(5, int(p["level_drain"])))):
+            txt = drd_pj.drain_level(c)
+            if txt:
+                parts.append(txt)
     for it in p.get("items") or []:
         c.setdefault("items", []).append(model.item(str(it.get("name", "Předmět"))[:80], it.get("category") or "Ostatní",
                                                     qty=int(it.get("qty", 1) or 1),

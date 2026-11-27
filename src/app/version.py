@@ -1,9 +1,17 @@
 """Číslo verze a novinky, které se po aktualizaci ukážou na úvodní obrazovce."""
 from __future__ import annotations
 
-VERSION = "0.18.0"
+VERSION = "0.19.0"
 
 CHANGES: dict[str, list[str]] = {
+    "0.19.0": [
+        "Karta postavy DrD: zvláštní schopnost rasy (hobit čich, trpaslík infravidění, kroll ultrasluch) "
+        "a přesvědčení.",
+        "Kostky → Postřeh: hledání objektů a mechanismů, naslouchání a vyražení dveří (i zbraní) podle pravidel.",
+        "Ztráta úrovně (např. dotyk nemrtvého): v Postupu na vyšší úroveň, nebo ji pošle PJ.",
+        "Pán jeskyně: tahák Postřeh a dveře v Nástrojích, nejpomalejší postava družiny na Stole, "
+        "přesvědčení, pohyblivost a rasová schopnost v deníku hráče.",
+    ],
     "0.18.0": [
         "Katalog DrD: celý Ceník z Příručky PJ (s. 101) – výstroj s cenami a váhami, nové skupiny "
         "Jídlo a služby a Oblečení a zvířata (hostinec, živobytí, šaty, kůň, mezek, povozy…).",

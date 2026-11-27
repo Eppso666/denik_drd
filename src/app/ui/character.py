@@ -140,7 +140,17 @@ def postava(app):
         obj, mech = drd.perception(c["race"], c["attrs"])
         info = (f"Velikost {model.size(c)} · pohyblivost {drd.movement(c['race'], c['attrs'], ratio)} "
                 f"(základ {drd.base_movement(c['race'], c['attrs'])}) · postřeh objekty {obj} %, mechanismy {mech} %")
-    attrs = ft.Column([attrs, k.muted(info, size=12)], spacing=6)
+        al = drd.alignment(c.get("alignment"))
+        if al:
+            info += f" · přesvědčení {al[1].lower()}"
+    extra: list[ft.Control] = []
+    sp = drd.race_special(c["race"]) if not is_dh else None
+    if sp:
+        extra.append(ft.Row([ft.Icon(ft.Icons.VISIBILITY_OUTLINED, size=16, color=l.orn),
+                             k.text(f"{sp[0]}: ", size=13, weight=ft.FontWeight.BOLD),
+                             k.muted(f"{sp[1]} ({sp[2]})", size=12, expand=True)],
+                            spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER))
+    attrs = ft.Column([attrs, k.muted(info, size=12), *extra], spacing=6)
 
     # boj
     fight_rows: list[ft.Control] = []
@@ -597,6 +607,22 @@ def postup(app):
             if w.get("dog_roll") is not None:
                 rows.append(k.muted(f"Padlo {w['dog_roll']}: " + (f"{w['dog']} – přidá se po uložení."
                                                                     if w.get("dog") else "pes tentokrát není.")))
+        if c["level"] > 1:
+            def drain(e):
+                def yes():
+                    from ..rules import drd_pj
+                    txt = drd_pj.drain_level(c)
+                    if txt:
+                        model.add_history(c, "Ztráta úrovně", txt)
+                        app.save(c)
+                        app.ui["lvl"] = None
+                        app.toast(txt)
+                        app.go("postava")
+                app.confirm("Postava ztratila úroveň?",
+                            "Třeba dotykem nemrtvého. Úroveň klesne o 1, zkušenosti na 1 méně, než je potřeba "
+                            "na ztracenou úroveň. Kouzla, životy a dovednosti zůstávají; hody podle nižší úrovně.",
+                            yes, yes_label="Snížit úroveň")
+            rows.append(ft.TextButton("Postava ztratila úroveň…", on_click=drain, icon=ft.Icons.TRENDING_DOWN))
         banner = ("Vlastnosti se v DrD 1.6 při postupu běžně nemění. Ruční úprava je pro případy, kdy to povolí PJ "
                   "(kouzlo, lektvar, kletba). Přírůstek životů je vždy alespoň 1.")
 

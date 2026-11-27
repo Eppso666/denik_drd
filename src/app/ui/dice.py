@@ -257,7 +257,7 @@ def kostky(app):
     k = app.kit
     l = app.look
     is_dh = c["system"] == "dh"
-    tabs = ["Dovednost", "Souboj", "Volný hod"] if is_dh else ["Kostky", "Souboj", "Schopnost", "Past"]
+    tabs = ["Dovednost", "Souboj", "Volný hod"] if is_dh else ["Kostky", "Souboj", "Schopnost", "Past", "Postřeh"]
     tab = app.ui.get("dice_tab")
     if tab not in tabs:
         tab = tabs[0]
@@ -346,6 +346,9 @@ def kostky(app):
             _push(app, f"Past · {ti}", total, f"k10 ({kk}) {fmt(b)} – {'štěstí, odolal' if ok else 'smůla, past zasáhla'}"
                   f" (nebezpečnost {danger})", l.ok if ok else l.bad, die="10")
         body.append(k.button("Hodit proti pasti (k10)", roll_trap))
+
+    elif tab == "Postřeh":
+        body += _perception_tab(app)
 
     else:
         r = model.rules(c["system"])
@@ -489,3 +492,101 @@ def _pm_card(app, pm: int, base: int) -> ft.Control:
 
 
 # --- souboj --------------------------------------------------------------------
+
+
+def _perception_tab(app) -> list[ft.Control]:
+    """Postřeh a dveře (PPZ s. 86, 88; PPZ PJ s. 110–111): hledání, naslouchání, vyražení dveří."""
+    from ..rules import drd_pj
+
+    c = app.char
+    k = app.kit
+    l = app.look
+    mode = app.ui.get("per_mode", "Hledání")
+    out: list[ft.Control] = [k.pills(["Hledání", "Naslouchání", "Dveře"], mode,
+                                     lambda v: app.go("kostky", per_mode=v), equal=True)]
+
+    def roll_chance(label: str, chance: int, detail: str):
+        def h(e):
+            p, _ = drd.percent(chance)
+            ok, txt = drd.pct_text(p, chance, c["level"])
+            head, _, rest = txt.partition(" – ")
+            _push(app, label, p, f"{rest or txt} · {detail}", l.ok if ok else l.bad, die="%", head=head)
+        return h
+
+    if mode == "Hledání":
+        obj, mech = drd.perception(c["race"], c["attrs"])
+        what = app.ui.get("per_what", "Objekty")
+        base = obj if what == "Objekty" else mech
+        nap = app.ui.get("per_notice", 0)
+        known = bool(app.ui.get("per_known", False))
+        chance = max(1, min(99, base + nap + (drd_pj.KNOWN_SECRET if known else 0)))
+        out += [k.pills([f"Objekty {obj} %", f"Mechanismy {mech} %"],
+                        f"Objekty {obj} %" if what == "Objekty" else f"Mechanismy {mech} %",
+                        lambda v: app.go("kostky", per_what=v.split()[0]), equal=True),
+                k.stepper(f"{nap:+d} %", lambda e: app.go("kostky", per_notice=nap - 5),
+                          lambda e: app.go("kostky", per_notice=nap + 5), label="Nápadnost věci",
+                          sub="určí PJ; hází se jednou za směnu hledání"),
+                k.switch_row("Vím, že tu tajné dveře jsou (+50 %)", known,
+                             lambda e: app.go("kostky", per_known=bool(e.control.value))),
+                k.muted("Zloděj tu nevyužije objevení mechanismů. Šance = postřeh + nápadnost.", size=12),
+                k.button(f"Hledat · k% · {chance} %",
+                         roll_chance(f"Hledání · {what.lower()}", chance, f"postřeh {base} %, nápadnost {nap:+d} %"),
+                         icon=ft.Icons.SEARCH, height=54)]
+    elif mode == "Naslouchání":
+        nap = app.ui.get("per_sound", 30)
+        again = bool(app.ui.get("per_again", False))
+        chance = max(1, min(99, nap + (drd_pj.SOUND_AGAIN if again else 0)))
+        out += [k.stepper(f"{nap} %", lambda e: app.go("kostky", per_sound=max(0, nap - 5)),
+                          lambda e: app.go("kostky", per_sound=nap + 5), label="Nápadnost zvuku",
+                          sub="určí PJ; postavy se zklidní a směnu naslouchají"),
+                k.switch_row("Zvuk už jsem jednou slyšel (+10 %)", again,
+                             lambda e: app.go("kostky", per_again=bool(e.control.value))),
+                k.muted("Na křižovatce chodeb hoď ještě jednou – úspěch určí i směr.", size=12),
+                k.button(f"Naslouchat · k% · {chance} %", roll_chance("Naslouchání", chance, f"nápadnost {nap} %"),
+                         icon=ft.Icons.HEARING, height=54)]
+    else:
+        code = app.ui.get("per_door", "I")
+        _, dname, (d_lo, _d_hi), (_l_lo, l_hi) = drd_pj.door(code)
+        danger = app.ui.get("per_danger", d_lo)
+        weapons = [w for w in model.weapons(c) if not w.get("ranged")]
+        wnames = ["Bez zbraně"] + [w["name"] for w in weapons]
+        wsel = app.ui.get("per_weapon", "Bez zbraně")
+        if wsel not in wnames:
+            wsel = "Bez zbraně"
+        kind = app.ui.get("per_kind", drd_pj.WEAPON_KINDS[0])
+        w = next((x for x in weapons if x["name"] == wsel), None)
+        sil = drd.bonus(c["attrs"][0])
+        wb = drd_pj.door_weapon_bonus(code, kind, int(w.get("attack", 0))) if w else 0
+        out += [k.muted("Dveře", size=13),
+                k.pills([f"{d[0]} {d[1]}" for d in drd_pj.DOORS], f"{code} {dname}",
+                        lambda v: app.go("kostky", per_door=v.split()[0],
+                                         per_danger=drd_pj.door(v.split()[0])[2][0]), wrap=True),
+                k.stepper(danger, lambda e: app.go("kostky", per_danger=max(1, danger - 1)),
+                          lambda e: app.go("kostky", per_danger=danger + 1), label="Nebezpečnost dveří",
+                          sub="určí PJ; hod musí být stejný nebo vyšší"),
+                k.muted("Čím vyrážíš", size=13),
+                k.pills(wnames, wsel, lambda v: app.go("kostky", per_weapon=v), wrap=True)]
+        if w:
+            out.append(k.pills(drd_pj.WEAPON_KINDS, kind, lambda v: app.go("kostky", per_kind=v), wrap=True))
+        out.append(k.muted(f"k10 {fmt(sil)} síla" + (f" {fmt(wb)} zbraň ({w.get('attack', 0)} SZ)" if w else ""),
+                           size=13))
+
+        def roll_door(e):
+            kk, total, ok = drd.trap(sil + wb, danger)
+            if ok:
+                txt = "dveře povolily"
+            else:
+                miss = danger - total
+                txt = "dveře vydržely"
+                if miss == 1:
+                    txt += " · příště je past o 1 nižší"
+                if w:
+                    lost = drd_pj.door_weapon_damage(code, kind, miss)
+                    txt += f" · zbraň přijde o {lost} „životů“ (dopad podle materiálu určí PJ)" if lost else " · zbraň vydržela"
+                else:
+                    txt += f" · ztratíš 0–{l_hi} životů (určí PJ)"
+            _push(app, f"Dveře · {dname.lower()}", total,
+                  f"k10 ({kk}) {fmt(sil)} síla" + (f" {fmt(wb)} zbraň" if w else "") + f" – {txt} (nebezpečnost {danger})",
+                  l.ok if ok else l.bad, die="10")
+        out.append(k.button("Vyrazit dveře (k10)", roll_door, icon=ft.Icons.DOOR_FRONT_DOOR_OUTLINED, height=54))
+    return out

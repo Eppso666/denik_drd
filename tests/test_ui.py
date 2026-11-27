@@ -3,6 +3,7 @@ import flet as ft
 import pytest
 
 from app import model
+from app.rules import drd
 from app.ui import magic, start
 from conftest import Ev, drain, walk
 
@@ -947,3 +948,95 @@ def test_gm_notes_encrypted_with_campaign_password(make_app):
     assert not again.get("notes") and not app.unlock_gm(dict(again, id="jiná"), "spatne")
     assert app.unlock_gm(again, "drak1234") and again["notes"][0]["text"] == "Krysař je kníže"
     assert again["maps"][0]["title"] == "Krypta"
+
+
+def _click_text(page, text):
+    for x in walk(page.views):
+        if getattr(x, "on_click", None) and any(text in str(getattr(y, "value", "") or getattr(y, "content", ""))
+                                                 for y in walk(x)):
+            x.on_click(Ev(x))
+            drain(page)
+            return x
+    raise AssertionError(f"tlačítko „{text}“ nenalezeno")
+
+
+def test_faze4_postava_postreh_dvere(make_app):
+    from app.rules import drd_pj
+    from app import sync
+    # pravidla
+    assert drd.race_special("Trpaslík")[0] == "Infravidění" and drd.race_special("Elf") is None
+    assert drd_pj.door_weapon_bonus("I", "ostré drtivé", 5) == 10 and drd_pj.door_weapon_bonus("II", "ostré bodné", 5) == 1
+    assert drd_pj.door_weapon_bonus("III", "ostré bodné", 7) == 0
+    assert drd_pj.door_weapon_damage("IV", "ostré bodné", 3) == 6 and drd_pj.door_weapon_damage("III", "tupé drtivé", 3) == 1
+    assert drd_pj.weapon_damage_effect("dřevěná", 5) == "útočnost zbraně −2"
+    assert drd_pj.weapon_damage_effect("kovová", 12) == "zbraň je zničena"
+    assert drd_pj.notice_from_shifts(4) == 15  # příklad z PPZ PJ s. 110
+    assert drd_pj.sound_notice(75, sahu=10, doors=1, again=True) == 45
+    assert dict(drd_pj.LEAD)["podzemí"] == 4 and drd_pj.lead_needed(22) == 4
+    # snížení úrovně: o 1 zk. méně, než je potřeba na ztracenou úroveň
+    c = model.create_character("drd", "Ulaj", "Trpaslík", "Válečník", [16, 12, 15, 10, 10])
+    c["level"], c["xp"] = 3, 1500
+    txt = drd_pj.drain_level(c)
+    assert c["level"] == 2 and c["xp"] == drd.xp_for_level("Válečník", 3) - 1 and "3 → 2" in txt
+    c["level"] = 1
+    assert drd_pj.drain_level(c) is None
+    # úprava od PJ
+    c2 = model.create_character("drd", "Mág", "Elf", "Kouzelník", [10, 12, 10, 17, 16])
+    c2["level"], c2["xp"], c2["mana"] = 3, 5000, 20
+    out = sync.apply_adjustment(c2, {"level_drain": 1, "reason": "dotyk upíra"})
+    assert c2["level"] == 2 and c2["mana"] == 20 and "Úroveň 3 → 2" in out
+    assert c2["mana_max"] == drd.class_mana("Kouzelník", 2, c2["attrs"])
+    # deník pro PJ nese pohyblivost
+    assert sync.sheet(c2)["move"] == drd.movement("Elf", c2["attrs"], model.load_ratio(c2))
+
+    # karta postavy: rasová schopnost a přesvědčení
+    app, page = make_app()
+    c = _drd_char(app, page, "Válečník", attrs=(16, 12, 15, 10, 10), race="Trpaslík")
+    c["alignment"] = "ZkD"
+    app.go("postava")
+    texts = " ".join(str(getattr(x, "value", "")) for v in page.views for x in walk(v))
+    assert "Infravidění" in texts and "PPZ s. 23" in texts and "přesvědčení zákonné dobro" in texts
+    # Kostky → Postřeh
+    app.go("kostky", dice_tab="Postřeh")
+    obj, mech = drd.perception("Trpaslík", c["attrs"])
+    _click_text(page, f"Hledat · k% · {obj} %")
+    assert app.ui["dice_last"]["label"] == "Hledání · objekty" and app.ui["dice_last"]["die"] == "%"
+    app.go("kostky", per_mode="Hledání", per_what="Mechanismy", per_notice=-10, per_known=True)
+    _click_text(page, f"Hledat · k% · {mech - 10 + 50} %")
+    app.go("kostky", per_mode="Naslouchání", per_sound=75, per_again=True)
+    _click_text(page, "Naslouchat · k% · 85 %")
+    assert app.ui["dice_last"]["label"] == "Naslouchání"
+    # dveře s mečem: bonus síla + zbraň
+    c["items"].append(model.item("Široký meč", "Zbraň", equipped=True, attack=5, damage=0, defense=0))
+    app.go("kostky", per_mode="Dveře", per_door="I", per_danger=30, per_weapon="Široký meč", per_kind="ostré drtivé")
+    texts = " ".join(str(getattr(x, "value", "")) for v in page.views for x in walk(v))
+    assert "+10 zbraň (5 SZ)" in texts
+    _click_text(page, "Vyrazit dveře")
+    last = app.ui["dice_last"]
+    assert last["label"] == "Dveře · dřevěné" and "dveře vydržely" in last["detail"]
+
+
+def test_faze4_pj_ztrata_urovne_a_pomucky(make_app):
+    from app.ui import pj
+    from app.rules import drd_pj
+    camp = {"id": "k1", "system": "drd", "name": "Doupě", "members": [
+        {"user_id": "u1", "role": "player", "snapshot": {"name": "Ulaj", "level": 3}},
+        {"user_id": "u2", "role": "player", "snapshot": {"name": "Kira", "level": 2}}],
+        "sheets": {"u1": {"name": "Ulaj", "race": "Trpaslík", "cls": "Válečník", "level": 3, "xp": 1500, "move": 9,
+                          "alignment": "N", "attrs": [16, 12, 15, 10, 10]},
+                   "u2": {"name": "Kira", "race": "Hobit", "level": 2, "move": 12}}}
+    assert pj.slowest(camp) == (9, "Ulaj")
+    assert pj.slowest({**camp, "system": "dh"}) is None
+    assert set(drd_pj.RACE_SPECIAL_GM) == set(drd.RACE_SPECIAL)
+    app, page = make_app()
+    m = camp["members"][0]
+    pj.edit_player(app, camp, m)
+    texts = " ".join(str(getattr(x, "value", "")) for x in walk(page.dialogs[-1]))
+    assert "Ztráta úrovně" in texts
+    pj.perception_help(app, camp)
+    texts = " ".join(str(getattr(x, "value", "")) for x in walk(page.dialogs[-1]))
+    assert "Kamenné: nebezpečnost 15–18" in texts and "PPZ PJ s. 110" in texts
+    pj.show_sheet(app, camp, m)
+    drain(page)
+    texts = " ".join(str(getattr(x, "value", "")) for x in walk(page.dialogs[-1]))
+    assert "Přesvědčení: Neutrální · pohyblivost 9" in texts and "Infravidění" in texts

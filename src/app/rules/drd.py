@@ -486,3 +486,16 @@ def roll_alignment(race: str, rng: random.Random | None = None) -> tuple[int, st
     """Hod k10 podle rasy → (hod, zkratka přesvědčení)."""
     k = (rng or random).randint(1, 10)
     return k, ALIGN_TABLE.get(race, ALIGN_TABLE["Člověk"])[k - 1]
+
+
+# --- zvláštní schopnosti podle rasy (PPZ s. 23–24) -------------------------------------------
+# rasa → (schopnost, krátká připomínka vlastními slovy, strana)
+RACE_SPECIAL = {
+    "Hobit": ("Čich", "vycítí a určí polohu živých tvorů na dálku, i za zdí", "PPZ s. 23"),
+    "Trpaslík": ("Infravidění", "vidí v omezené míře i ve tmě (vnímá teplo)", "PPZ s. 23"),
+    "Kroll": ("Ultrasluch", "„vidí“ sluchem jako netopýr, i za úplné tmy a v mlze", "PPZ s. 24"),
+}
+
+
+def race_special(race: str) -> tuple[str, str, str] | None:
+    return RACE_SPECIAL.get(race)

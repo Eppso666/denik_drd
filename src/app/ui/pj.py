@@ -18,7 +18,7 @@ import time
 import flet as ft
 
 from .. import model, sync
-from ..rules import dh, drd
+from ..rules import dh, drd, drd_pj
 from ..rules.common import fmt
 from .journal import DH_FIELDS, DRD_FIELDS
 from .kit import column
@@ -107,10 +107,26 @@ def pj_kampan(app):
     else:
         controls.append(k.empty("Zatím tu nikdo není. Hráči zadají kód kampaně u své postavy v Družině → "
                                 "Připojit se." if camp.get("sid") else "Nejdřív získej kód pro hráče."))
+    slow = slowest(camp)
+    if slow:
+        controls.append(k.muted(f"Družina jde rychlostí nejpomalejšího: {slow[1]} – pohyblivost {slow[0]} "
+                                f"({drd_pj.LEAD_PAGE})", size=13))
     controls.append(k.section("Poslední hody", icon=ft.Icons.CASINO_OUTLINED,
                               trailing=k.link("Vše", lambda e: _all_rolls(app, camp))))
     controls.append(_rolls(app, camp, 5))
     return Screen("Stůl PJ", [column(controls)], actions=_actions(app, camp))
+
+
+def slowest(camp: dict) -> tuple[int, str] | None:
+    """Nejnižší pohyblivost mezi hráči (z deníků, které poslali)."""
+    if camp.get("system") != "drd":
+        return None
+    out = []
+    for m in players(camp):
+        sh = (camp.get("sheets") or {}).get(m.get("user_id")) or {}
+        if sh.get("move") is not None:
+            out.append((int(sh["move"]), sh.get("name") or (m.get("snapshot") or {}).get("name", "?")))
+    return min(out) if out else None
 
 
 def _head(app, camp) -> ft.Control:
@@ -329,6 +345,16 @@ def show_sheet(app, camp, m) -> None:
             k.muted(f"Zkušenosti {fmt_n(sh.get('xp', 0))}" + (f" · OČ {sh['oc']}" if sh.get("oc") is not None else ""),
                     size=13),
         ]
+        if camp["system"] == "drd":
+            al = drd.alignment(sh.get("alignment"))
+            line = [f"Přesvědčení: {al[1]}" if al else "Přesvědčení nezvoleno"]
+            if sh.get("move") is not None:
+                line.append(f"pohyblivost {sh['move']}")
+            body.append(k.muted(" · ".join(line), size=13))
+            sp = drd.race_special(sh.get("race") or "")
+            if sp:
+                body.append(k.muted(f"{sp[0]}: {sp[1]}. PJ: {drd_pj.RACE_SPECIAL_GM[sh['race']]} "
+                                    f"({drd_pj.RACE_SPECIAL_PAGE})", size=12))
         attrs = sh.get("attrs") or []
         if attrs:
             body.append(ft.Row([k.stat(a, v, fmt(r.bonus(int(v))),
@@ -387,7 +413,7 @@ def edit_player(app, camp, m) -> None:
     hp0, hpm = gm_view_hp(camp, m)
     hp0 = int(hp0 or 0)
     hpm = int(hpm or max(hp0, 1))
-    st = {"hp": hp0, "xp": 0, "items": []}
+    st = {"hp": hp0, "xp": 0, "items": [], "drain": 0}
     reason = k.field("Důvod (uvidí hráč)", "")
     holder = ft.Column(spacing=12, tight=True)
 
@@ -406,6 +432,19 @@ def edit_player(app, camp, m) -> None:
             st[key] += d
             draw()
         return h
+
+    def change_drain(d):
+        def h(e):
+            lvl = int(sh.get("level", s.get("level")) or 1)
+            st["drain"] = max(0, min(lvl - 1, st["drain"] + d))
+            draw()
+        return h
+
+    def drain_sub() -> str:
+        lvl = sh.get("level", s.get("level"))
+        if not st["drain"]:
+            return f"např. dotyk vyšších nemrtvých ({drd_pj.LEVEL_DRAIN_PAGE})"
+        return f"{lvl}. → {int(lvl) - st['drain']}. úroveň · {drd_pj.LEVEL_DRAIN_NOTE}"
 
     def add_item(e):
         def save(v):
@@ -441,6 +480,10 @@ def edit_player(app, camp, m) -> None:
                       value_color=l.ok if st["xp"] > 0 else None),
             k.button("Předat předmět do batohu", add_item, primary=False, icon=ft.Icons.BACKPACK_OUTLINED, height=44),
             *items,
+            *([k.divider(),
+               k.stepper(f"−{st['drain']}" if st["drain"] else "0", change_drain(-1), change_drain(1),
+                         label="Ztráta úrovně", sub=drain_sub(),
+                         value_color=l.bad if st["drain"] else None)] if camp["system"] == "drd" else []),
             k.note("Změna se propíše do Deníku hráče při jeho další synchronizaci (do pár sekund, když má aplikaci "
                    "otevřenou). Hráč uvidí upozornění.",
                    ft.Icons.NOTIFICATIONS_OUTLINED),
@@ -458,6 +501,8 @@ def edit_player(app, camp, m) -> None:
             payload["xp"] = st["xp"]
         if st["items"]:
             payload["items"] = st["items"]
+        if st["drain"]:
+            payload["level_drain"] = st["drain"]
         app.close_dialog()
         if not payload:
             return
@@ -466,6 +511,11 @@ def edit_player(app, camp, m) -> None:
         sh_ = camp.setdefault("sheets", {}).setdefault(m["user_id"], dict(sh or s))
         if "hp" in payload:
             sh_["hp"] = payload["hp"]
+        if payload.get("level_drain"):  # náhled u PJ, než hráč úpravu přijme
+            tmp = {"system": "drd", **sh_}
+            for _ in range(payload["level_drain"]):
+                drd_pj.drain_level(tmp)
+            sh_.update({key: tmp[key] for key in ("level", "xp", "mana_max") if key in tmp})
         if payload.get("xp"):
             sh_["xp"] = int(sh_.get("xp") or 0) + payload["xp"]
         queue(app, camp, {"op": "adjust", "uid": m["user_id"], "payload": payload})
@@ -889,7 +939,9 @@ def pj_nastroje(app):
              ("WB_SUNNY_OUTLINED", "Počasí a cesta", "podnebí, únava, bloudění", "FÁZE 6", None),
              ("GPS_FIXED", "Pasti", "nebezpečnost a hod pro hráče", "FÁZE 8", None),
              ("DIAMOND_OUTLINED", "Poklady", "generátor, rozdělení do batohů", "FÁZE 8", None),
-             ("CASTLE_OUTLINED", "Panství a armády", "daně, hrady, bitvy", "FÁZE 9", None)]
+             ("CASTLE_OUTLINED", "Panství a armády", "daně, hrady, bitvy", "FÁZE 9", None),
+             ("DOOR_FRONT_DOOR_OUTLINED", "Postřeh a dveře", "nápadnost, zvuky, dveře, náskok", "PŘÍRUČKA PJ",
+              lambda e: perception_help(app, camp))]
     grid = [ft.Row([tile(getattr(ft.Icons, a[0]), *a[1:]) for a in tiles[i:i + 2]], spacing=8)
             for i in range(0, len(tiles), 2)]
     pool = camp.get("xp_pool") or []
@@ -922,6 +974,37 @@ def pj_nastroje(app):
                          disabled=not (pl and total))]),
     ], spacing=10), glow=True)
     return Screen("Nástroje PJ", [column([*grid, xp_card])])
+
+
+def perception_help(app, camp) -> None:
+    """Tahák PJ: nápadnost věcí a zvuků, dveře, náskok (jen čísla s odkazem na stranu)."""
+    k = app.kit
+    l = app.look
+    pal = lambda v: f"{v[0]:+d} % {v[1]}"
+    body: list[ft.Control] = [
+        k.text(f"Nápadnost věcí ({drd_pj.NOTICE_PAGE})", size=15, weight=ft.FontWeight.BOLD, head=True),
+        k.muted("věc · palác · podzemí", size=12),
+        *[k.muted(f"• {n} · {pal(a)} · {pal(b)}", size=12) for n, a, b in drd_pj.NOTICE_THINGS],
+        k.muted("Vlastní nápadnost: 100 % / počet směn, za které by se věc našla, − 10 %. "
+                "Ví o tajných dveřích bez podrobností: +50 %.", size=12),
+        k.text("Nápadnost zvuků", size=15, weight=ft.FontWeight.BOLD, head=True),
+        *[k.muted(f"• {n} · {v} %", size=12) for n, v in drd_pj.NOTICE_SOUNDS],
+        k.muted("Za každý sáh −1 %, za každé dřevěné dveře −30 %, znovu zaslechnout +10 %.", size=12),
+        k.text(f"Dveře ({drd_pj.DOORS_PAGE})", size=15, weight=ft.FontWeight.BOLD, head=True),
+        *[k.muted(f"• {c_} {n}: nebezpečnost {a}–{b}, ztráta životů {x}–{y}", size=12)
+          for c_, n, (a, b), (x, y) in drd_pj.DOORS],
+        k.muted(drd_pj.DOOR_NOTES, size=12),
+        k.muted("Zbraň: I bodná ½ SZ · drtivá ostrá 2× SZ · tupá SZ; II ¼ SZ (poškození ½ rozdílu) · SZ · SZ; "
+                "III nic (rozdíl) · ½ SZ (½) · SZ (¼); IV nic (2× rozdíl) · ½ SZ (rozdíl) · ½ SZ (½). "
+                "Poškození zbraně: dřevěná 1–3 −1, 4–6 −2, víc zničena; okovaná 4/8; kovová 5/11.", size=12),
+        k.text(f"Náskok a cestování ({drd_pj.LEAD_PAGE})", size=15, weight=ft.FontWeight.BOLD, head=True),
+        k.muted(" · ".join(f"{n} {v}" for n, v in drd_pj.LEAD) + " (1 stupeň ≈ 5 sáhů)", size=12),
+        k.muted(drd_pj.TRAVEL_NOTE, size=12),
+    ]
+    app.page.show_dialog(ft.AlertDialog(
+        title=k.text("Postřeh a dveře", size=20, weight=ft.FontWeight.BOLD, head=True),
+        content=ft.Container(ft.Column(body, spacing=6, tight=True, scroll=ft.ScrollMode.AUTO), width=380),
+        actions=[ft.TextButton("Zavřít", on_click=lambda e: app.close_dialog())], bgcolor=l.card))
 
 
 def _count(n: int) -> str:
